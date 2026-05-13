@@ -402,17 +402,28 @@ function normalizeOpenAlex(item, query){
   return r;
 }
 function uniqueRecords(records){
-  const seen=new Set(); const out=[];
+  // Map-based merge: when multiple records collide on the same key (DOI/id),
+  // keep the FIRST one but fill in any empty fields from later collisions.
+  // This prevents (e.g.) a Crossref record without pdf_url from masking the
+  // OpenAlex record that DOES have pdf_url for the same DOI.
+  const seen = new Map();
   for (const r of records){
     const k = (r.doi && 'doi:'+r.doi.toLowerCase())
       || (r.id && 'id:'+r.id)
       || (r.candidate_id && 'candidate:'+r.candidate_id)
       || 'title:'+String(r.title||r.normalized_candidate||'').toLowerCase()+':'+(r.year||'');
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(r);
+    const existing = seen.get(k);
+    if (!existing){ seen.set(k, r); continue; }
+    // Merge: fill empty fields in `existing` with values from `r`
+    for (const key of Object.keys(r)){
+      const cur = existing[key];
+      const nxt = r[key];
+      if ((cur === undefined || cur === '' || cur === null) && nxt){
+        existing[key] = nxt;
+      }
+    }
   }
-  return out;
+  return [...seen.values()];
 }
 function plausibleResult(record, query){
   const haystack = (String(record.title||'')+' '+String(record.container||'')+' '+String(record.abstract_note||'')+' '+String(record.author||'')).toLowerCase();
