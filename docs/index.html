@@ -128,14 +128,17 @@ button:disabled{opacity:.55;cursor:not-allowed}
   <div class="status" id="status"></div>
 </aside>
 <section>
-  <div class="toolbar" style="margin-top:4px">
+  <div class="toolbar" style="margin-top:4px;flex-wrap:wrap">
     <strong id="viewTitle">本体CSV<span id="recordsBadge"></span></strong>
-    <div class="small">
-      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-right:12px">
+    <div class="small" style="display:flex;gap:14px;flex-wrap:wrap">
+      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
         <input id="filterUnverified" type="checkbox" style="width:auto"> 未検証のみ表示
       </label>
       <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
         <input id="filterSearchHits" type="checkbox" style="width:auto"> 検索ヒットのみ
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+        <input id="showFailed" type="checkbox" style="width:auto"> 孫引失敗も表示
       </label>
     </div>
   </div>
@@ -932,12 +935,15 @@ function readCard(i, arr){
 }
 function render(){
   const all = state.records;
-  const u = all.filter(r => r.unverified).length;
-  const h = all.filter(r => r.search_hit).length;
+  const showFailed = showFailedFlag();
+  const u = all.filter(r => r.unverified && (showFailed || !isFailedArcExtraction(r))).length;
+  const h = all.filter(r => r.search_hit && (showFailed || !isFailedArcExtraction(r))).length;
+  const hiddenFailed = all.filter(r => isFailedArcExtraction(r)).length;
   const view = $('viewTitle');
   if (view){
     const badge = u ? ' <span style="background:#fde68a;color:#7a4a02;border-radius:999px;padding:1px 7px;font-size:11px">⚠'+u+'</span>' : '';
-    view.innerHTML = '本体CSV ('+all.length+' 件'+(h ? ' / 検索ヒット '+h : '')+(u ? ' / 未検証 '+u : '')+')'+badge;
+    const visibleCount = all.length - (showFailed ? 0 : hiddenFailed);
+    view.innerHTML = '本体CSV ('+visibleCount+' 件'+(h ? ' / 検索ヒット '+h : '')+(u ? ' / 未検証 '+u : '')+(hiddenFailed && !showFailed ? ' / 孫引失敗 '+hiddenFailed+' 件は非表示' : '')+')'+badge;
   }
   if (!all.length){
     $('content').innerHTML = '<div class="empty">まだレコードがありません。検索条件を入力して「検索」を押してください。</div>';
@@ -946,6 +952,8 @@ function render(){
   const filterUnv = ($('filterUnverified')||{}).checked;
   const filterHits = ($('filterSearchHits')||{}).checked;
   let items = all.map((r, i) => ({r, i}));
+  // Hide failed arc-extraction unless explicit opt-in
+  if (!showFailed) items = items.filter(x => !isFailedArcExtraction(x.r));
   // Sort: unverified first
   items.sort((a, b) => (b.r.unverified?1:0) - (a.r.unverified?1:0));
   if (filterUnv) items = items.filter(x => x.r.unverified);
@@ -1091,8 +1099,18 @@ function downloadFile(filename, content, mime='text/plain'){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 500);
 }
-function verifiedRecords(){ return state.records.filter(r => !r.unverified); }
-function unverifiedRecords(){ return state.records.filter(r => r.unverified); }
+function isFailedArcExtraction(r){
+  // refs_extracted is set to a string like "no_refs (...)" when extraction failed.
+  // Successful runs set it to true / 'pdf' / 'crossref'.
+  if (r.refs_extracted === true || r.refs_extracted === 'pdf' || r.refs_extracted === 'crossref') return false;
+  return typeof r.refs_extracted === 'string';
+}
+function showFailedFlag(){ const el = $('showFailed'); return el ? !!el.checked : false; }
+function visibleRecords(){
+  return showFailedFlag() ? state.records : state.records.filter(r => !isFailedArcExtraction(r));
+}
+function verifiedRecords(){ return visibleRecords().filter(r => !r.unverified); }
+function unverifiedRecords(){ return visibleRecords().filter(r => r.unverified); }
 function dlCsv(){
   const f = projectFiles(currentProject());
   downloadFile(f.csv, csvRows(verifiedRecords(), CSV_HEADER), 'text/csv');
@@ -1259,6 +1277,7 @@ $('resetExtractedBtn').onclick = resetExtractedFlags;
 $('bulkSkipProcessed').onchange = updateBulkCount;
 $('filterUnverified').onchange = render;
 $('filterSearchHits').onchange = render;
+$('showFailed').onchange = render;
 $('zipBtn').onclick = downloadZip;
 $('zoteroBtn').onclick = sendToZotero;
 $('dlCsvBtn').onclick = dlCsv;
