@@ -392,8 +392,12 @@ function normalizeOpenAlex(item, query){
     doi: item.doi ? item.doi.replace(/^https:\/\/doi.org\//,'') : '',
     isbn: '',
     issn: ((item.primary_location && item.primary_location.source && item.primary_location.source.issn) || []).join(';'),
-    url: (item.primary_location && item.primary_location.source && item.primary_location.landing_page_url) || item.id || '',
-    pdf_url: (item.open_access && item.open_access.oa_url) || '',
+    // landing_page_url is on primary_location (not on .source). Fix old buggy chain.
+    url: (item.primary_location && item.primary_location.landing_page_url) || item.id || '',
+    // Prefer the explicit OA URL; fall back to primary_location.pdf_url if exposed.
+    pdf_url: (item.open_access && item.open_access.oa_url)
+      || (item.primary_location && item.primary_location.pdf_url)
+      || '',
     scope: '',
     abstract_note: '',
     source_checked: 'OpenAlex search: '+query,
@@ -442,8 +446,27 @@ function plausibleResult(record, query){
 if (window.pdfjsLib){
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 }
+// Domains that consistently lack CORS for PDFs; don't even try (saves 8s preflight).
+const PDF_NO_CORS_HOSTS = [
+  'zenodo.org',
+  'doi.org', // typically redirects to a host that blocks CORS
+  'repository.ninjal.ac.jp',
+  'www.jstage.jst.go.jp',
+  'onlinelibrary.wiley.com',
+  'link.springer.com',
+  'www.sciencedirect.com',
+  'academic.oup.com',
+  'journals.sagepub.com',
+];
+function isLikelyCorsBlocked(url){
+  try {
+    const u = new URL(url);
+    return PDF_NO_CORS_HOSTS.some(h => u.host === h || u.host.endsWith('.'+h));
+  } catch (e){ return false; }
+}
 async function extractTextFromPdfUrl(url){
   if (!window.pdfjsLib) throw new Error('PDF.jsが読み込まれていません。');
+  if (isLikelyCorsBlocked(url)) throw new Error('CORSが許可されないと既知のドメイン: '+(new URL(url)).host);
   // 1) Pre-flight HEAD check (fast fail on CORS / 404) to avoid PDF.js hanging.
   try {
     const head = await Promise.race([
@@ -541,6 +564,9 @@ async function extractRefsViaPdf(parent){
 }
 async function extractRefsViaCrossref(parent){
   if (!parent.doi) return { ok:false, refs:[], reason:'no_doi' };
+  // Crossref does not index DataCite-registered DOIs (Zenodo, many repositories).
+  // Calling it just wastes a request and produces a 404 in the console.
+  if (/^10\.5281\//i.test(parent.doi)) return { ok:false, refs:[], reason:'zenodo_doi_not_on_crossref' };
   try {
     const r = await fetch('https://api.crossref.org/works/'+encodeURIComponent(parent.doi));
     if (!r.ok) return { ok:false, refs:[], reason:'crossref_http_'+r.status };
