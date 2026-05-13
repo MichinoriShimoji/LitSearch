@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Literature Pipeline</title>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
 :root{color-scheme:light;--ink:#1d252c;--muted:#64717d;--line:#d9e0e6;--bg:#f6f8fa;--panel:#fff;--accent:#006d77;--warn:#996515}
 *{box-sizing:border-box}
@@ -81,8 +82,8 @@ button:disabled{opacity:.55;cursor:not-allowed}
   <div class="divider"></div>
 
   <div class="section-title" style="background:#fff8f4;color:#996515;padding:6px 10px;border-radius:6px;margin-bottom:8px">Stage 2 — 孫引き一括抽出</div>
-  <div class="small" style="margin-bottom:6px">本体CSV内の <strong>DOI付き</strong>レコードを親論文として、参考文献を Crossref から再取得し、自動再検証します。未検証のものは黄色く表示されます。</div>
-  <div class="small" id="bulkInfo">対象: <span id="bulkCount">0</span>件 / 本体内DOI付き<span id="bulkTotalCount">0</span>件</div>
+  <div class="small" style="margin-bottom:6px">本体内の <strong>PDF URL もしくは DOI</strong> 付きレコードを親論文として、参考文献を抽出します。<strong>PDFが読めれば PDF を優先</strong>、ダメなら Crossref メタデータにフォールバック。未検証のものは黄色く表示されます。</div>
+  <div class="small" id="bulkInfo">対象: <span id="bulkCount">0</span>件 / 本体内 PDF/DOI 付き<span id="bulkTotalCount">0</span>件</div>
   <div style="margin:8px 0">
     <label style="display:inline-block;margin:0 12px 0 0;color:var(--ink)"><input id="bulkSkipProcessed" type="checkbox" style="width:auto" checked> 処理済の親をスキップ</label>
   </div>
@@ -364,6 +365,101 @@ function plausibleResult(record, query){
   return terms.some(t => haystack.includes(t));
 }
 // ============================================================================
+// PDF reference extraction
+// ============================================================================
+if (window.pdfjsLib){
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
+async function extractTextFromPdfUrl(url){
+  if (!window.pdfjsLib) throw new Error('PDF.jsが読み込まれていません。');
+  const loadingTask = window.pdfjsLib.getDocument({
+    url: url,
+    disableFontFace: true,
+    disableRange: false,
+    disableStream: false,
+  });
+  const pdf = await loadingTask.promise;
+  let allText = '';
+  for (let p = 1; p <= pdf.numPages; p++){
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    allText += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  return allText;
+}
+function extractRefsFromPdfText(text){
+  // Find the start of the references section
+  const patterns = [
+    /\n\s*References?\s*\n/i,
+    /\n\s*参考文献\s*\n/,
+    /\n\s*Bibliography\s*\n/i,
+    /\n\s*Works\s+Cited\s*\n/i,
+    /\n\s*引用文献\s*\n/,
+    /\n\s*文献\s*\n/,
+  ];
+  let refStart = -1;
+  for (const p of patterns){
+    const m = text.match(p);
+    if (m){
+      const idx = m.index + m[0].length;
+      if (refStart === -1 || idx > refStart) refStart = idx;
+    }
+  }
+  if (refStart === -1){
+    // weaker fallback: search anywhere for the keyword
+    const m = text.match(/(References|参考文献|Bibliography|引用文献)/);
+    if (!m) return [];
+    refStart = m.index + m[0].length;
+  }
+  let refText = text.slice(refStart);
+  // Truncate at potential next section
+  for (const sp of [/\n\s*Appendix\s*\n/i, /\n\s*Index\s*\n/i, /\n\s*Notes\s*\n/i, /\n\s*付録\s*\n/, /\n\s*索引\s*\n/]){
+    const m = refText.match(sp);
+    if (m) refText = refText.slice(0, m.index);
+  }
+  // Strategy: split by common reference markers
+  let candidates = [];
+  if (/\[\d+\]/.test(refText.slice(0, 1000))){
+    candidates = refText.split(/\s*\[\d+\]\s*/).filter(Boolean);
+  } else if (/(^|\n)\s*\d+[\.\)]\s/.test(refText.slice(0, 1000))){
+    candidates = refText.split(/(?:^|\n)\s*\d+[\.\)]\s+/).filter(Boolean);
+  } else {
+    // Heuristic: split by newline followed by a likely-author-start
+    candidates = refText.split(/\n(?=[A-Z一-龯])/);
+  }
+  return candidates
+    .map(c => c.replace(/\s+/g, ' ').trim())
+    .filter(c => c.length > 30 && c.length < 800)
+    .slice(0, 300);
+}
+async function extractRefsViaPdf(parent){
+  if (!parent.pdf_url) return { ok:false, refs:[], reason:'no_pdf_url' };
+  try {
+    setStatus('PDF読み込み中: '+parent.pdf_url.slice(0,60)+'...');
+    const text = await extractTextFromPdfUrl(parent.pdf_url);
+    if (!text || text.length < 200) return { ok:false, refs:[], reason:'empty_or_short_pdf' };
+    const candidates = extractRefsFromPdfText(text);
+    if (!candidates.length) return { ok:false, refs:[], reason:'no_refs_section_found' };
+    return { ok:true, refs: candidates.map(c => ({ unstructured: c })) };
+  } catch (e){
+    return { ok:false, refs:[], reason:'pdf_fetch_error: '+e.message };
+  }
+}
+async function extractRefsViaCrossref(parent){
+  if (!parent.doi) return { ok:false, refs:[], reason:'no_doi' };
+  try {
+    const r = await fetch('https://api.crossref.org/works/'+encodeURIComponent(parent.doi));
+    if (!r.ok) return { ok:false, refs:[], reason:'crossref_http_'+r.status };
+    const item = (await r.json()).message;
+    const refs = item.reference || [];
+    if (!refs.length) return { ok:false, refs:[], reason:'no_reference_metadata' };
+    return { ok:true, refs };
+  } catch (e){
+    return { ok:false, refs:[], reason:'crossref_error: '+e.message };
+  }
+}
+
+// ============================================================================
 // Reference extraction (孫引き再検証)
 // ============================================================================
 function parseUnstructured(text){
@@ -476,92 +572,82 @@ async function processReference(ref, parent, queryStr){
 async function extractRefsForParent(parent){
   // Process a single parent record; mutate state.records and return counts
   let verified = 0, unverified = 0, refsFetched = 0;
-  try {
-    const r = await fetch('https://api.crossref.org/works/'+encodeURIComponent(parent.doi));
-    if (!r.ok){
-      parent.refs_extracted = 'failed: HTTP '+r.status;
-      return { verified, unverified, refsFetched, error: 'HTTP '+r.status };
-    }
-    const item = (await r.json()).message;
-    const refs = item.reference || [];
-    refsFetched = refs.length;
-    if (!refs.length){
-      parent.refs_extracted = 'no_references_metadata';
-      return { verified, unverified, refsFetched };
-    }
-    for (let k = 0; k < refs.length; k++){
-      if (window._bulkProgressCb) window._bulkProgressCb(k+1, refs.length);
-      const result = await processReference(refs[k], parent, parent.doi);
-      state.records.push(result.rec);
-      if (result.ok) verified++; else unverified++;
-      await sleep(80);
-    }
-    parent.refs_extracted = true;
-    return { verified, unverified, refsFetched };
-  } catch (e){
-    parent.refs_extracted = 'error: '+e.message;
-    return { verified, unverified, refsFetched, error: e.message };
-  }
-}
+  let source = '';
+  let reason = '';
+  let refs = [];
 
-async function extractReferences(i, kind){
-  // Per-card extraction (Stage 2 single)
-  const arr = kind === 'results' ? state.results : state.records;
-  const parent = arr[i];
-  if (!parent || !parent.doi){ setStatus('参考文献の取り込みにはDOIが必要です。'); return; }
-  // Promote results to records if needed (extraction operates on records)
-  if (kind === 'results'){
-    state.records = uniqueRecords([...state.records, parent]);
+  // Try PDF first (if pdf_url exists). PDFs typically have more complete reference lists.
+  if (parent.pdf_url){
+    const pdfRes = await extractRefsViaPdf(parent);
+    if (pdfRes.ok){
+      refs = pdfRes.refs;
+      source = 'pdf';
+    } else {
+      reason = pdfRes.reason;
+    }
   }
-  // Find the parent in records
-  const recIdx = state.records.findIndex(r => r.doi === parent.doi);
-  const recParent = state.records[recIdx];
-  setStatus('親論文を取得中: '+recParent.doi);
-  window._bulkProgressCb = (k, total) => setStatus('参考文献 '+k+'/'+total+' を検証中...');
-  const { verified, unverified, refsFetched, error } = await extractRefsForParent(recParent);
-  window._bulkProgressCb = null;
-  state.records = uniqueRecords(state.records);
-  persist();
-  tab = 'records';
-  if (unverified > 0){
-    const f = $('filterUnverified'); if (f) f.checked = true;
+
+  // Fall back to Crossref reference field
+  if (!refs.length && parent.doi){
+    const crRes = await extractRefsViaCrossref(parent);
+    if (crRes.ok){
+      refs = crRes.refs;
+      source = 'crossref';
+    } else if (!reason){
+      reason = crRes.reason;
+    } else {
+      reason = reason + ' / ' + crRes.reason;
+    }
   }
-  render();
-  if (error){
-    setStatus('親論文取得失敗: '+error+' (親: '+recParent.doi+')');
-  } else if (!refsFetched){
-    setStatus('この論文には参考文献メタデータがCrossrefに登録されていません。');
-  } else {
-    setStatus('検証完了: 確認済 '+verified+' 件、未検証 '+unverified+' 件を本体に追加（親: '+recParent.doi+'）'+(unverified?'\n本体タブで「未検証のみ表示」をONにしました。黄色いカードを編集／削除してください。':''));
+
+  if (!refs.length){
+    parent.refs_extracted = 'no_refs ('+(reason||'no_pdf_or_doi')+')';
+    return { verified, unverified, refsFetched, source: '', reason };
   }
+
+  refsFetched = refs.length;
+  for (let k = 0; k < refs.length; k++){
+    if (window._bulkProgressCb) window._bulkProgressCb(k+1, refs.length, source);
+    const result = await processReference(refs[k], parent, parent.doi || parent.title);
+    state.records.push(result.rec);
+    if (result.ok) verified++; else unverified++;
+    await sleep(80);
+  }
+  parent.refs_extracted = source; // 'pdf' or 'crossref'
+  return { verified, unverified, refsFetched, source };
 }
 
 async function bulkExtractReferences(){
   try {
     const skipEl = $('bulkSkipProcessed');
     const skip = skipEl ? !!skipEl.checked : true;
-    const withDoi = state.records.filter(r => r.doi);
-    const dois = withDoi.filter(r => !skip || !r.refs_extracted);
-    if (!withDoi.length){
-      alert('本体CSVに DOI 付きのレコードがありません。\nStage 1 でCrossref/OpenAlex検索を実行し、結果を「本体へ追加」してから Stage 2 を実行してください。');
+    const withSource = state.records.filter(r => r.doi || r.pdf_url);
+    const targets = withSource.filter(r => !skip || !r.refs_extracted);
+    if (!withSource.length){
+      alert('本体CSVに DOI または PDF URL を持つレコードがありません。\nStage 1 で検索して結果を「本体へ追加」してから Stage 2 を実行してください。');
       return;
     }
-    if (!dois.length){
-      alert('DOI付きレコードは '+withDoi.length+' 件ありますが、すべて「処理済」になっています。\n「処理済フラグをリセット」を押すか、「処理済の親をスキップ」のチェックを外してください。');
+    if (!targets.length){
+      alert('対象レコードは '+withSource.length+' 件ありますが、すべて「処理済」になっています。\n「処理済フラグをリセット」を押すか、「処理済の親をスキップ」のチェックを外してください。');
       return;
     }
-    if (!confirm(dois.length+' 件のレコードから参考文献を一括抽出します。\n各レコードあたり数秒、合計で数十秒〜数分かかります。続けますか？')) return;
+    const withPdf = targets.filter(r => r.pdf_url).length;
+    const withDoiOnly = targets.length - withPdf;
+    if (!confirm(targets.length+' 件のレコードから参考文献を一括抽出します。\n  PDF読込試行: '+withPdf+' 件\n  Crossrefのみ: '+withDoiOnly+' 件\n各レコードあたり数秒〜数十秒。続けますか？')) return;
     $('bulkExtractBtn').disabled = true;
-    let totalVerified = 0, totalUnverified = 0, totalRefs = 0, errs = 0;
-    for (let n = 0; n < dois.length; n++){
-      const parent = dois[n];
-      window._bulkProgressCb = (k, total) => setStatus('Stage 2 一括抽出 — 親 '+(n+1)+'/'+dois.length+' ('+parent.doi+') — 参考文献 '+k+'/'+total+' 検証中... (累計: 確認済 '+totalVerified+' / 未検証 '+totalUnverified+')');
-      setStatus('Stage 2 一括抽出 — 親 '+(n+1)+'/'+dois.length+' ('+parent.doi+') を処理中...');
-      const { verified, unverified, refsFetched, error } = await extractRefsForParent(parent);
+    let totalVerified = 0, totalUnverified = 0, totalRefs = 0, viaPdf = 0, viaCrossref = 0, viaNone = 0;
+    for (let n = 0; n < targets.length; n++){
+      const parent = targets[n];
+      const parentLabel = parent.doi || parent.pdf_url || parent.title || '(no id)';
+      window._bulkProgressCb = (k, total, src) => setStatus('Stage 2 ['+(src||'?')+'] — 親 '+(n+1)+'/'+targets.length+' ('+String(parentLabel).slice(0,40)+') — 参考文献 '+k+'/'+total+' 検証中... (累計: 確認済 '+totalVerified+' / 未検証 '+totalUnverified+')');
+      setStatus('Stage 2 — 親 '+(n+1)+'/'+targets.length+' ('+String(parentLabel).slice(0,60)+') を処理中...');
+      const { verified, unverified, refsFetched, source } = await extractRefsForParent(parent);
       totalVerified += verified;
       totalUnverified += unverified;
       totalRefs += refsFetched;
-      if (error) errs++;
+      if (source === 'pdf') viaPdf++;
+      else if (source === 'crossref') viaCrossref++;
+      else viaNone++;
     }
     window._bulkProgressCb = null;
     state.records = uniqueRecords(state.records);
@@ -572,7 +658,12 @@ async function bulkExtractReferences(){
     }
     render();
     $('bulkExtractBtn').disabled = false;
-    setStatus('一括抽出完了: '+dois.length+' 親 → 参考文献 '+totalRefs+' 件処理 → 確認済 '+totalVerified+' / 未検証 '+totalUnverified+(errs?' / エラー '+errs:'')+(totalUnverified ? '\n本体タブで「未検証のみ表示」をONにしました。黄色いカードを編集／削除してから ZIP に進んでください。' : ''));
+    setStatus(
+      '一括抽出完了:\n'
+      +'  対象 '+targets.length+' 親 (PDF経由 '+viaPdf+' / Crossref経由 '+viaCrossref+' / 取得不可 '+viaNone+')\n'
+      +'  参考文献 '+totalRefs+' 件処理 → 確認済 '+totalVerified+' / 未検証 '+totalUnverified
+      +(totalUnverified ? '\n\n本体タブで「未検証のみ表示」をONにしました。黄色いカードを編集／削除してから ZIP に進んでください。' : '')
+    );
   } catch (e){
     $('bulkExtractBtn').disabled = false;
     setStatus('Stage 2 でエラー発生: '+e.message);
@@ -591,21 +682,22 @@ function resetExtractedFlags(){
 function updateBulkCount(){
   const skipEl = $('bulkSkipProcessed');
   const skip = skipEl ? skipEl.checked : true;
-  const withDoi = state.records.filter(r => r.doi);
-  const targets = withDoi.filter(r => !skip || !r.refs_extracted);
+  const withSource = state.records.filter(r => r.doi || r.pdf_url);
+  const targets = withSource.filter(r => !skip || !r.refs_extracted);
   const ct = $('bulkCount'); if (ct) ct.textContent = targets.length;
-  const tt = $('bulkTotalCount'); if (tt) tt.textContent = withDoi.length;
+  const tt = $('bulkTotalCount'); if (tt) tt.textContent = withSource.length;
   const btn = $('bulkExtractBtn');
   if (btn){
-    if (!withDoi.length){
+    if (!withSource.length){
       btn.disabled = true;
-      btn.title = '本体CSVにDOI付きレコードがありません。Stage 1で検索して追加してください。';
+      btn.title = '本体CSVにDOIまたはPDF URL付きレコードがありません。Stage 1で検索して追加してください。';
     } else if (!targets.length){
       btn.disabled = true;
-      btn.title = 'DOI付きレコードはすべて処理済です。「処理済フラグをリセット」または「処理済の親をスキップ」のチェックを外してください。';
+      btn.title = '対象レコードはすべて処理済です。「処理済フラグをリセット」または「処理済の親をスキップ」のチェックを外してください。';
     } else {
       btn.disabled = false;
-      btn.title = targets.length+'件の親論文から参考文献を一括抽出します';
+      const withPdf = targets.filter(r => r.pdf_url).length;
+      btn.title = targets.length+'件処理（うち '+withPdf+' 件はPDFも試行）';
     }
   }
 }
@@ -727,23 +819,24 @@ function card(r, i, kind){
   const isResult = kind === 'results';
   const isUnverified = !!r.unverified;
   let actionBtns = '';
-  const refBtn = r.doi ? '<button onclick="extractReferences('+i+',\''+kind+'\')">参考文献を取り込む</button>' : '';
   if (isResult){
-    actionBtns = '<button class="primary" onclick="addRecord('+i+')">本体へ追加</button>'
-      + refBtn;
+    actionBtns = '<button class="primary" onclick="addRecord('+i+')">本体へ追加</button>';
   } else { // records
     const verifyBtn = isUnverified ? '<button class="primary" onclick="markVerified('+i+')">確認済みにする</button>' : '<button onclick="markUnverified('+i+')">未検証に戻す</button>';
     actionBtns = '<button onclick="saveRecord('+i+')">保存</button>'
       + verifyBtn
-      + '<button class="warn" onclick="removeRecord('+i+')">削除</button>'
-      + refBtn;
+      + '<button class="warn" onclick="removeRecord('+i+')">削除</button>';
   }
   const unverifiedPill = isUnverified ? '<span class="pill unverified-pill">⚠ 未検証</span>' : '';
   const extractedBadge = r.extracted ? '<span class="pill" style="background:#fef9e8;color:#996515">参考文献由来</span>' : '';
   const parentBadge = r.parent_doi ? '<span class="pill" style="background:#eef2f7;color:#475569" title="親論文DOI: '+r.parent_doi+'">親: '+r.parent_doi.slice(0,28)+(r.parent_doi.length>28?'…':'')+'</span>' : '';
   let refsExtractedBadge = '';
-  if (r.refs_extracted === true){
-    refsExtractedBadge = '<span class="pill" style="background:#e8f2f3;color:#004e56" title="このレコードからは既に参考文献を抽出済">孫引済</span>';
+  if (r.refs_extracted === 'pdf'){
+    refsExtractedBadge = '<span class="pill" style="background:#e8f2f3;color:#004e56" title="PDFから参考文献を抽出済">📄 PDF孫引済</span>';
+  } else if (r.refs_extracted === 'crossref'){
+    refsExtractedBadge = '<span class="pill" style="background:#e3eef9;color:#16447f" title="Crossrefメタデータから参考文献を抽出済">Crossref孫引済</span>';
+  } else if (r.refs_extracted === true){
+    refsExtractedBadge = '<span class="pill" style="background:#e8f2f3;color:#004e56" title="既に参考文献を抽出済">孫引済</span>';
   } else if (typeof r.refs_extracted === 'string'){
     refsExtractedBadge = '<span class="pill" style="background:#fbe5dd;color:#8c2d11" title="抽出時の状態: '+r.refs_extracted+'">孫引失敗</span>';
   }
@@ -1113,7 +1206,6 @@ window.removeRecord = removeRecord;
 window.markVerified = markVerified;
 window.markUnverified = markUnverified;
 window.swapTitle = swapTitle;
-window.extractReferences = extractReferences;
 </script>
 </body>
 </html>
