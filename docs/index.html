@@ -680,7 +680,9 @@ async function processReference(ref, parent, queryStr){
   const parsed = parseUnstructured(unstructured);
   if (parsed.title && parsed.title.length >= 5){
     try {
-      const results = await searchAll(parsed.title, 5);
+      // searchAll signature is (query, author, rows). Pass author='' to avoid
+      // accidentally treating `5` as an author filter.
+      const results = await searchAll(parsed.title, '', 5);
       const match = pickConfidentMatch(results, parsed);
       if (match){
         match.parent_doi = parent.doi || '';
@@ -1069,7 +1071,16 @@ function render(){
   const filterHits = ($('filterSearchHits')||{}).checked;
   let items = all.map((r, i) => ({r, i}));
   if (hideFailed) items = items.filter(x => !isFailedArcExtraction(x.r));
-  items.sort((a, b) => (b.r.unverified?1:0) - (a.r.unverified?1:0));
+  // Sort order: search hits first (often the most useful), then unverified
+  // (need user attention), then other extracted refs at bottom.
+  items.sort((a, b) => {
+    const aHit = a.r.search_hit ? 1 : 0;
+    const bHit = b.r.search_hit ? 1 : 0;
+    if (aHit !== bHit) return bHit - aHit;
+    const aUnv = a.r.unverified ? 1 : 0;
+    const bUnv = b.r.unverified ? 1 : 0;
+    return bUnv - aUnv;
+  });
   if (filterUnv) items = items.filter(x => x.r.unverified);
   if (filterHits) items = items.filter(x => x.r.search_hit);
   if (!items.length){
