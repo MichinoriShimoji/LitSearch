@@ -247,12 +247,14 @@ function creatorsToBibAuthor(author){
   return String(author||'').split(';').map(a=>a.trim()).filter(Boolean).join(' and ');
 }
 function bibKeyForRecord(r){
-  // "lastname[_lastname...][year]" — e.g. shimoji2008, shimoji_hirosawa2022, 下地2022
+  // ASCII-only: "lastname[_lastname...]year" — e.g. shimoji2008, shimoji_hirosawa2022.
+  // CJK / non-ASCII characters are dropped. If nothing remains (e.g., pure
+  // Japanese author), the part is omitted; all-empty falls back to "anon".
   const sanitize = (s) => String(s||'')
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g,'') // strip Latin diacritics
     .toLowerCase()
-    .replace(/[^a-z0-9぀-ヿ㐀-鿿＀-￯]/g,''); // keep ASCII alphanum + CJK
+    .replace(/[^a-z0-9]/g,''); // ASCII alphanumerics only
   const authors = String(r.author||'').split(/;/).map(a => a.trim()).filter(Boolean);
   let lasts = authors.map(a => sanitize(a.split(',')[0])).filter(Boolean);
   if (lasts.length > 3) lasts = lasts.slice(0,2).concat('etal');
