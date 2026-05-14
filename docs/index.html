@@ -618,6 +618,15 @@ function uniqueRecords(records){
     return ks;
   };
   const seen = new Map();
+  const fill = (existing, r) => {
+    for (const key of Object.keys(r)){
+      const cur = existing[key];
+      const nxt = r[key];
+      if ((cur === undefined || cur === '' || cur === null) && nxt){
+        existing[key] = nxt;
+      }
+    }
+  };
   for (const r of records){
     const keys = keysOf(r);
     if (!keys.length) continue;
@@ -626,15 +635,7 @@ function uniqueRecords(records){
       if (seen.has(k)){ existing = seen.get(k); break; }
     }
     if (existing){
-      // Fill empty fields in `existing` with values from `r`
-      for (const key of Object.keys(r)){
-        const cur = existing[key];
-        const nxt = r[key];
-        if ((cur === undefined || cur === '' || cur === null) && nxt){
-          existing[key] = nxt;
-        }
-      }
-      // Register all of r's keys → existing, so future records can find it
+      fill(existing, r);
       for (const k of keys){
         if (!seen.has(k)) seen.set(k, existing);
       }
@@ -642,7 +643,73 @@ function uniqueRecords(records){
       for (const k of keys) seen.set(k, r);
     }
   }
-  return Array.from(new Set(seen.values()));
+  // First-pass dedupe done. Second pass: collapse remaining near-duplicates
+  // whose titles are similar (e.g. "A Grammar of Irabu" vs
+  // "A Grammar of Irabu, a Southern Ryukyuan Language", or repository copy vs
+  // journal copy with different DOIs).
+  const merged = Array.from(new Set(seen.values()));
+  const tokenize = (s) => String(s||'')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g,'')
+    .replace(/[^\p{Letter}\p{Number}\s　]+/gu, ' ')
+    .split(/[\s　]+/)
+    .filter(w => w.length >= 2);
+  const sim = (a, b) => {
+    const A = new Set(tokenize(a));
+    const B = new Set(tokenize(b));
+    if (!A.size || !B.size) return 0;
+    let inter = 0;
+    for (const w of A) if (B.has(w)) inter++;
+    return inter / new Set([...A, ...B]).size;
+  };
+  // Normalized full-string match: one title being a prefix of the other catches
+  // subtitle-added variants ("A Grammar of Irabu" vs "A Grammar of Irabu, a
+  // Southern Ryukyuan Language") that Jaccard tokenization misses when titles
+  // are short or in CJK.
+  const normStr = (s) => String(s||'')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g,'')
+    .replace(/[\s　]+/g,'')
+    .replace(/[^\p{Letter}\p{Number}]+/gu,'');
+  const isPrefix = (a, b) => {
+    const A = normStr(a), B = normStr(b);
+    if (A.length < 12 || B.length < 12) return false;
+    if (A === B) return true;
+    return A.startsWith(B) || B.startsWith(A);
+  };
+  // Same-author check (lossy across scripts, but useful as a vote)
+  const sharesAuthor = (a, b) => {
+    if (!a || !b) return false;
+    const toks = (s) => String(s||'').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'').split(/[;,\s　]+/).filter(x => x.length >= 2);
+    const A = new Set(toks(a));
+    for (const x of toks(b)) if (A.has(x)) return true;
+    return false;
+  };
+  for (let i = 0; i < merged.length; i++){
+    if (!merged[i]) continue;
+    for (let j = i + 1; j < merged.length; j++){
+      if (!merged[j]) continue;
+      const yA = String(merged[i].year||'').match(/\d{4}/);
+      const yB = String(merged[j].year||'').match(/\d{4}/);
+      if (yA && yB && yA[0] !== yB[0]) continue;
+      const tokA = tokenize(merged[i].title);
+      const tokB = tokenize(merged[j].title);
+      const minTok = Math.min(tokA.length, tokB.length);
+      const s = sim(merged[i].title, merged[j].title);
+      const p = isPrefix(merged[i].title, merged[j].title);
+      const a = sharesAuthor(merged[i].author, merged[j].author);
+      // (a) prefix of one another (catches subtitle additions, CJK-friendly)
+      // (b) strong Jaccard similarity AND enough tokens to be meaningful
+      // (c) moderate similarity AND author overlap
+      if (p || (s >= 0.7 && minTok >= 4) || (s >= 0.5 && minTok >= 3 && a)){
+        fill(merged[i], merged[j]);
+        merged[j] = null;
+      }
+    }
+  }
+  return merged.filter(Boolean);
 }
 function plausibleResult(record, query, author){
   const haystackTitle = (String(record.title||'')+' '+String(record.container||'')+' '+String(record.abstract_note||'')).toLowerCase();
