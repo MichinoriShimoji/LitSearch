@@ -246,9 +246,33 @@ function bibEscape(s){ return String(s||'').replace(/[{}]/g,''); }
 function creatorsToBibAuthor(author){
   return String(author||'').split(';').map(a=>a.trim()).filter(Boolean).join(' and ');
 }
+function bibKeyForRecord(r){
+  // "lastname[_lastname...][year]" — e.g. shimoji2008, shimoji_hirosawa2022, 下地2022
+  const sanitize = (s) => String(s||'')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g,'') // strip Latin diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9぀-ヿ㐀-鿿＀-￯]/g,''); // keep ASCII alphanum + CJK
+  const authors = String(r.author||'').split(/;/).map(a => a.trim()).filter(Boolean);
+  let lasts = authors.map(a => sanitize(a.split(',')[0])).filter(Boolean);
+  if (lasts.length > 3) lasts = lasts.slice(0,2).concat('etal');
+  const lastsJoined = lasts.length ? lasts.join('_') : 'anon';
+  const yearMatch = String(r.year||'').match(/\d{4}/);
+  const year = yearMatch ? yearMatch[0] : 'nd';
+  return lastsJoined + year;
+}
 function toBib(records, tag){
+  const seenKey = new Map();
   return records.map(r => {
-    const key = slug((r.author||'anon').split(',')[0]+'_'+r.year+'_'+r.title).replace(/^_+/,'');
+    const base = bibKeyForRecord(r);
+    let key = base;
+    if (!seenKey.has(base)){
+      seenKey.set(base, 1);
+    } else {
+      const idx = seenKey.get(base);
+      seenKey.set(base, idx + 1);
+      key = base + String.fromCharCode(96 + idx); // first dup→'a', next→'b', ...
+    }
     const type = r.type==='book'?'book':r.type==='chapter'?'incollection':r.type==='thesis'?'phdthesis':'article';
     const fields = [];
     fields.push(['author', creatorsToBibAuthor(r.author)]);
