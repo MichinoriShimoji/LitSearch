@@ -404,6 +404,57 @@ async function enrichCiniiUrl(record){
         if (others.length && !record.alt_title) record.alt_title = others[0];
       }
     }
+    // ---- 1b) Authoritative citation fields from CiNii's `publication` block.
+    //          IRDB / repository copies often have wrong container/volume/pages.
+    //          CiNii's publisher-side metadata is generally cleaner.
+    const pub = data.publication;
+    if (pub && typeof pub === 'object'){
+      const pickByLang = (arr, lang) => {
+        if (!Array.isArray(arr)) return '';
+        for (const x of arr){
+          if (x && (x['@language']||'').toLowerCase().slice(0,2) === lang && x['@value']) return x['@value'];
+        }
+        for (const x of arr){ if (x && x['@value']) return x['@value']; }
+        return '';
+      };
+      const preferLang = (data['dc:language']||'').toLowerCase().slice(0,2) || 'ja';
+      const cont = pickByLang(pub['prism:publicationName'], preferLang)
+                || pickByLang(pub['prism:publicationName'], 'ja')
+                || pickByLang(pub['prism:publicationName'], 'en');
+      if (cont) record.container = cont;
+      const publ = pickByLang(pub['dc:publisher'], preferLang)
+                || pickByLang(pub['dc:publisher'], 'ja')
+                || pickByLang(pub['dc:publisher'], 'en');
+      if (publ) record.publisher = publ;
+      if (pub['prism:volume']){
+        const v = String(pub['prism:volume']).replace(/^[\-－—‐]$/,'');
+        if (v) record.volume = v;
+      }
+      if (pub['prism:number']){
+        record.issue = String(pub['prism:number']);
+      }
+      const sp = pub['prism:startingPage'];
+      const ep = pub['prism:endingPage'];
+      if (sp && ep) record.pages = sp + '-' + ep;
+      else if (sp) record.pages = String(sp);
+      if (pub['prism:publicationDate']){
+        const yr = String(pub['prism:publicationDate']).match(/\d{4}/);
+        if (yr) record.year = yr[0];
+      }
+      for (const id of (pub.publicationIdentifier || [])){
+        const t = String(id && id['@type']||'').toUpperCase();
+        const v = id && id['@value']||'';
+        if (!v) continue;
+        if ((t === 'ISSN' || t === 'PISSN' || t === 'EISSN') && !record.issn) record.issn = v;
+        if (t === 'ISBN' && !record.isbn) record.isbn = v;
+      }
+      // Mark this record as having authoritative CiNii citation data so
+      // subsequent merges don't silently overwrite it.
+      if (!/^CiNii/.test(String(record.source_checked||''))){
+        record.source_checked = (record.source_checked || '') + ' [CiNii-enriched citation]';
+      }
+    }
+
     // ---- 2) Additional candidate URLs
     const urls = new Set();
     (function walk(x){
@@ -618,10 +669,24 @@ function uniqueRecords(records){
     return ks;
   };
   const seen = new Map();
+  // CiNii is treated as the more authoritative source for Japanese citation
+  // metadata (journal name, publisher, volume/issue, pages, place). When a
+  // CiNii record merges into a non-CiNii record, these fields are OVERWRITTEN
+  // — IRDB / repository / OpenAlex copies often have subtly wrong values
+  // (e.g. wrong volume number from a repository deposit).
+  const CITATION_FIELDS = ['container','publisher','place','volume','issue','pages'];
+  const isCinii = (r) => !!(r && (r._cinii_url || /^CiNii/.test(String(r.source_checked||''))));
   const fill = (existing, r) => {
+    const ciniiSrc = isCinii(r);
+    const ciniiDst = isCinii(existing);
     for (const key of Object.keys(r)){
       const cur = existing[key];
       const nxt = r[key];
+      if (nxt && ciniiSrc && !ciniiDst && CITATION_FIELDS.indexOf(key) !== -1){
+        // CiNii values trump non-CiNii values for citation fields
+        existing[key] = nxt;
+        continue;
+      }
       if ((cur === undefined || cur === '' || cur === null) && nxt){
         existing[key] = nxt;
       }
