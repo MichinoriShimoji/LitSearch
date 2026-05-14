@@ -155,11 +155,10 @@ button:disabled{opacity:.55;cursor:not-allowed}
   <div class="section-title" style="background:#f5f9fd;color:#1d4d80;padding:6px 10px;border-radius:6px;margin-bottom:8px">出力</div>
   <div class="actions">
     <button class="primary" id="zipBtn">ZIPでまとめてダウンロード</button>
-    <button id="zoteroBtn">Zoteroへ直接送信</button>
   </div>
   <div class="small" style="margin-top:6px">
     ZIP には CSV ／ BibTeX ／ Zotero用 BibTeX ／ PDFリンク一覧 が入ります。<br>
-    Zotero 送信は Zotero Desktop が起動している必要があります。
+    Zotero へは <strong>Zotero用BibTeX</strong>（下記の個別ダウンロード）を File → Import またはドラッグ＆ドロップで取り込んでください。
   </div>
 
   <details style="margin-top:14px">
@@ -201,7 +200,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
   <div class="intro">
     <p><strong>LitScope</strong> は主に<strong>日琉諸語</strong>を対象にした<strong>文献検索システム</strong>です。</p>
     <p>松岡葵氏作成の<strong>「地域別方言文献リスト」（11,000件超）</strong>を基礎データベースとし、そこに <strong>CiNii Research</strong> ／ <strong>OpenAlex</strong> ／ <strong>Crossref</strong> のリアルタイム検索を組み合わせて横断照会します。</p>
-    <p><strong>ZIPダウンロード</strong>で CSV ／ BibTeX ／ Zotero用 BibTeX を取り出すか、起動中の Zotero に直接送信できます。</p>
+    <p><strong>ZIPダウンロード</strong>で CSV ／ BibTeX ／ Zotero用 BibTeX を取り出せます。Zotero 用 BibTeX は Zotero に File → Import またはドラッグ＆ドロップで取り込み可能です。</p>
     <p class="small">ローカルDBが書誌情報の優先源。Web から取れた値は補完として使います。すべてブラウザ内で完結し、データは外部に送られません。</p>
     <div style="margin-top:12px;padding:12px 14px;border-top:1px dashed var(--line);background:#f5f5f4;border-radius:6px">
       <p style="margin:0;font-size:.98em">
@@ -1847,38 +1846,6 @@ async function downloadZip(){
     setStatus('ZIP生成失敗: '+e.message);
   }
 }
-async function sendToZotero(){
-  const verified = verifiedRecords();
-  if (!verified.length){
-    setStatus('送信する確認済レコードがありません（未検証のみは送信できません）。');
-    return;
-  }
-  const unverified = unverifiedRecords();
-  if (unverified.length && !confirm(unverified.length+' 件が未検証のままです。確認済 '+verified.length+' 件だけをZoteroに送信しますか？')) return;
-  const tag = $('tag').value;
-  const bib = toBib(verified, tag);
-  const session = 'litpipe-'+Date.now();
-  setStatus('Zotero送信中... Zotero Desktopが http://127.0.0.1:23119 で起動している必要があります。');
-  try {
-    const r = await fetch('http://127.0.0.1:23119/connector/import?session='+encodeURIComponent(session), {
-      method: 'POST',
-      headers: {'Content-Type': 'application/x-bibtex'},
-      body: bib,
-    });
-    const text = await r.text();
-    if (r.ok){
-      setStatus('Zotero送信成功（HTTP '+r.status+'）\nレコード '+state.records.length+' 件をタグ「'+tag+'」付きで取り込みました。\n'+text.slice(0,300));
-    } else {
-      setStatus('Zoteroが応答しましたが、エラーを返しました（HTTP '+r.status+'）\n'+text.slice(0,500));
-    }
-  } catch (e){
-    setStatus('Zotero送信失敗: '+e.message+'\n\n'
-      + 'チェックリスト:\n'
-      + ' 1. Zotero Desktop は起動していますか？\n'
-      + ' 2. ブラウザがHTTPS→localhost通信を許可していますか？（Safariは厳しめ。Chrome/Firefox/Edge推奨）\n'
-      + ' 3. file:// で開いている場合はそのまま動くはずです。');
-  }
-}
 function importCsv(file){
   const reader = new FileReader();
   reader.onload = e => {
@@ -1930,7 +1897,6 @@ $('filterUnverified').onchange = render;
 $('filterSearchHits').onchange = render;
 $('hideFailed').onchange = render;
 $('zipBtn').onclick = downloadZip;
-$('zoteroBtn').onclick = sendToZotero;
 $('dlCsvBtn').onclick = dlCsv;
 $('dlBibBtn').onclick = dlBib;
 $('dlZotBtn').onclick = dlZot;

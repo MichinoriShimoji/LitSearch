@@ -26,7 +26,7 @@
    - 取れた参考文献は DOI lookup / title 検索で再検証
 4. カードを編集 or 削除して整える
 5. **ZIPでまとめてダウンロード** で完成版を取得
-6. （任意）**Zoteroへ直接送信** で Zotero Desktop に取り込み
+6. Zotero に取り込みたい場合は、Zotero 用 BibTeX（`zotero_import_*.bib`）を File → Import またはドラッグ＆ドロップ
 
 ## 重要な設計
 
@@ -36,12 +36,11 @@
 - **データはブラウザ内のみ**：localStorage も使わない。リフレッシュごとに完全リセット
 - **ZIP 出力で永続化**：CSV / BibTeX / Zotero用 BibTeX / PDFリンク一覧 / 未検証CSV
 
-## Zoteroへの送信
+## Zoteroへの取り込み
 
-「Zoteroへ直接送信」ボタンを押すと、Zotero Desktop の `http://127.0.0.1:23119` に BibTeX を POST します。
-- Zotero Desktop を起動しておく必要があります
-- Chrome / Firefox / Edge は HTTPS から localhost への通信を許可（Safari は厳しめ）
-- 動かない場合は ZIP から `.bib` をダウンロードして **File → Import** で手動取り込み
+ZIP（または個別ダウンロード）から `.bib` を保存し、Zotero に **File → Import** または BibTeX ファイルを直接ドラッグ＆ドロップで取り込んでください。
+- Zotero の CORS ポリシーにより、外部ドメイン（GitHub Pages 等）からの `/connector/import` 直接送信は不可
+- `zotero_import_*.bib` は タグ（keywords）付きで出力されるので、取り込み後の整理が楽です
 
 ## CORS の現実
 
