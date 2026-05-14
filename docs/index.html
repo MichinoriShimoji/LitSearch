@@ -1364,7 +1364,7 @@ async function searchAll(query, author, rows){
   const oaParams = new URLSearchParams();
   oaParams.set('per-page', rows);
   if (query) oaParams.set('search', query);
-  if (author) oaParams.set('filter', 'authorships.author.display_name.search:'+author);
+  if (author) oaParams.set('filter', 'raw_author_name.search:'+author);
   // CiNii: q + creator
   const ciParams = new URLSearchParams();
   ciParams.set('format', 'json');
