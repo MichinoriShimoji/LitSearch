@@ -245,7 +245,27 @@ function crossrefYear(item){
     || yearFromDateParts(item['published-print']) || yearFromDateParts(item['published-online'])
     || yearFromDateParts(item.created) || yearFromDateParts(item.deposited) || yearFromDateParts(item.indexed) || '';
 }
-function bibEscape(s){ return String(s||'').replace(/[{}]/g,''); }
+function bibEscape(s){
+  // Strip BibTeX-structural braces (sometimes users have {Foo} to prevent
+  // capitalisation; we drop both forms for safety since they break when the
+  // value is wrapped in {}).
+  let v = String(s||'').replace(/[{}]/g,'');
+  // TeX special characters that must be escaped in any value passed through
+  // bibtex / biber. Order matters: backslash first so we don't double-escape
+  // backslashes introduced by later substitutions.
+  v = v.replace(/\\/g, '\\textbackslash{}')
+       .replace(/&/g, '\\&')
+       .replace(/%/g, '\\%')
+       .replace(/#/g, '\\#')
+       .replace(/\$/g, '\\$')
+       .replace(/_/g, '\\_')
+       .replace(/~/g, '\\textasciitilde{}')
+       .replace(/\^/g, '\\textasciicircum{}');
+  // Diacritics (Ōtsuki, Sánchez, …) and CJK characters are passed through as
+  // UTF-8. They work natively in biber + biblatex + XeLaTeX/LuaLaTeX. For
+  // pdfLaTeX + classic bibtex you need utf8 inputenc + a CJK package.
+  return v;
+}
 function creatorsToBibAuthor(author){
   return String(author||'').split(';').map(a=>a.trim()).filter(Boolean).join(' and ');
 }
