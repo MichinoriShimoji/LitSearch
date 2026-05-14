@@ -89,7 +89,8 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <button id="refreshBtn">再読込</button>
     <button class="warn" id="clearAllBtn">全削除</button>
   </div>
-  <div class="small" style="margin-top:6px">Crossref + OpenAlex + CiNii Research を並列検索 → ヒットを本体に追加 → 各ヒットの参考文献も <strong>PDF / Crossref</strong> から自動取得・再検証。所要時間は親の数 × 平均30件で1〜2分目安。</div>
+  <div class="small" style="margin-top:6px">手元のローカル方言文献DB（11,000件） + Crossref + OpenAlex + CiNii Research を並列検索 → 各ヒットの参考文献も <strong>PDF / Crossref</strong> から自動取得・再検証。所要時間は親の数 × 平均30件で1〜2分目安。</div>
+  <div class="small" id="localDbStatus" style="margin-top:4px;color:#475569">📚 ローカルDB 読み込み中...</div>
 
   <label>確認用リンク</label>
   <div class="links small" id="sourceLinks"></div>
@@ -669,21 +670,22 @@ function uniqueRecords(records){
     return ks;
   };
   const seen = new Map();
-  // CiNii is treated as the more authoritative source for Japanese citation
-  // metadata (journal name, publisher, volume/issue, pages, place). When a
-  // CiNii record merges into a non-CiNii record, these fields are OVERWRITTEN
-  // — IRDB / repository / OpenAlex copies often have subtly wrong values
-  // (e.g. wrong volume number from a repository deposit).
+  // Citation-source priority (higher wins for venue/publisher/volume/pages/...):
+  //   2 = Local hand-curated DB (most trusted)
+  //   1 = CiNii (clean publisher-side metadata)
+  //   0 = Crossref / OpenAlex / IRDB / anything else
   const CITATION_FIELDS = ['container','publisher','place','volume','issue','pages'];
+  const isLocal = (r) => !!(r && r.local_hit);
   const isCinii = (r) => !!(r && (r._cinii_url || /^CiNii/.test(String(r.source_checked||''))));
+  const priority = (r) => isLocal(r) ? 2 : (isCinii(r) ? 1 : 0);
   const fill = (existing, r) => {
-    const ciniiSrc = isCinii(r);
-    const ciniiDst = isCinii(existing);
+    const ex = priority(existing);
+    const inP = priority(r);
     for (const key of Object.keys(r)){
       const cur = existing[key];
       const nxt = r[key];
-      if (nxt && ciniiSrc && !ciniiDst && CITATION_FIELDS.indexOf(key) !== -1){
-        // CiNii values trump non-CiNii values for citation fields
+      if (nxt && inP > ex && CITATION_FIELDS.indexOf(key) !== -1){
+        // Higher-priority source's citation fields trump the existing record
         existing[key] = nxt;
         continue;
       }
@@ -691,6 +693,8 @@ function uniqueRecords(records){
         existing[key] = nxt;
       }
     }
+    // Preserve "this record exists in the local DB" flag for badge rendering
+    if (isLocal(r)) existing.local_hit = true;
   };
   for (const r of records){
     const keys = keysOf(r);
@@ -1180,7 +1184,99 @@ function updateBulkCount(){
   }
 }
 
+// =============================================================================
+// Local DB (curated CSV of Japanese dialect literature, ~11k records)
+// =============================================================================
+let LOCAL_DB = null;
+let LOCAL_DB_PROMISE = null;
+function normalizeLocalRecord(rec){
+  const stripBom = s => String(s||'').replace(/^﻿/, '');
+  const author = stripBom(rec['citation_display'] !== undefined ? rec['author'] : rec.author).trim();
+  const year = String(rec.year||'').trim();
+  const title = String(rec.title||'').trim();
+  const venue = String(rec.venue||'').trim();
+  const wt = String(rec.work_type||'').toLowerCase();
+  const type = wt === 'book' ? 'book'
+            : (wt === 'incollection' || wt === 'chapter') ? 'chapter'
+            : (wt === 'thesis' || wt === 'dissertation') ? 'thesis'
+            : 'article';
+  const r = {
+    id: slug((author||'local')+'_'+year+'_'+title),
+    type, author, year, title,
+    container: venue,
+    publisher: String(rec.publisher||''),
+    place: '',
+    volume: String(rec.vol_issue||''),
+    issue: '',
+    pages: String(rec.pages||''),
+    doi: '',
+    isbn: '',
+    issn: '',
+    url: String(rec.url||''),
+    pdf_url: '',
+    scope: String(rec.topic||''),
+    abstract_note: String(rec.notes||''),
+    source_checked: 'Local DB' + (rec.source_file ? ' / '+rec.source_file : '') + (rec.editor ? ' (ed. '+rec.editor+')' : ''),
+    local_hit: true,
+    region: String(rec.region||''),
+    subregion: String(rec.subregion||''),
+  };
+  r.harvard_reference = makeHarvard(r);
+  // Pre-compute lowercase haystack for fast filtering
+  r._haystack = (r.title+' '+r.container+' '+r.abstract_note+' '+r.region+' '+r.subregion+' '+r.author+' '+r.scope).toLowerCase();
+  return r;
+}
+async function loadLocalDB(){
+  try {
+    const t0 = performance.now();
+    const r = await fetch('data/hougen_search_results.csv');
+    if (!r.ok){ console.warn('Local DB fetch:', r.status); return; }
+    const text = await r.text();
+    const rows = parseCSV(text);
+    LOCAL_DB = rows.map(normalizeLocalRecord);
+    console.log('Local DB loaded: '+LOCAL_DB.length+' records in '+(performance.now()-t0|0)+'ms');
+    const el = $('localDbStatus');
+    if (el) el.textContent = '📚 ローカルDB '+LOCAL_DB.length.toLocaleString()+' 件 読み込み済';
+  } catch (e){
+    console.warn('Local DB load error:', e.message);
+  }
+}
+function ensureLocalDB(){
+  if (!LOCAL_DB_PROMISE) LOCAL_DB_PROMISE = loadLocalDB();
+  return LOCAL_DB_PROMISE;
+}
+function searchLocalDB(query, author, rows){
+  if (!LOCAL_DB) return [];
+  const q = String(query||'').toLowerCase().trim();
+  const a = String(author||'').toLowerCase().trim();
+  const qTerms = q.split(/[\s　]+/).filter(t => {
+    if (!t) return false;
+    const hasCJK = /[　-ヿ㐀-鿿＀-￯]/.test(t);
+    return hasCJK ? t.length >= 2 : t.length > 1;
+  });
+  const out = [];
+  const cap = Math.max(50, rows * 5);
+  for (const rec of LOCAL_DB){
+    if (qTerms.length){
+      if (!qTerms.every(t => rec._haystack.indexOf(t) !== -1)) continue;
+    }
+    if (a){
+      const ah = String(rec.author||'').toLowerCase();
+      if (!ah.includes(a)){
+        const aLast = a.split(/[\s,　]+/)[0];
+        if (!aLast || !ah.includes(aLast)) continue;
+      }
+    }
+    out.push(rec);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
 async function searchAll(query, author, rows){
+  // Make sure the local DB is in memory (one-time load on first search).
+  await ensureLocalDB();
+  const localHits = searchLocalDB(query, author, rows);
   const timedFetch = async (url) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
@@ -1223,6 +1319,10 @@ async function searchAll(query, author, rows){
       .then(async r => r.ok ? safeMap((await r.json()).items, x => normalizeCinii(x, query||author||'')) : []),
   ]);
   const out = [];
+  // Local DB first so it wins the keyed merge and provides authoritative
+  // citation fields (publisher / venue / volume / pages) for entries that
+  // were curated by hand.
+  out.push(...localHits);
   for (const r of results) {
     if (r.status === 'fulfilled') out.push(...r.value);
     else console.warn('search source failed:', r.reason && r.reason.message);
@@ -1305,6 +1405,7 @@ function card(r, i, kind){
   const actionBtns = '<button class="del-btn" onclick="removeRecord('+i+')">削除</button>';
   const unverifiedPill = isUnverified ? '<span class="pill unverified-pill">⚠ 未検証</span>' : '';
   const searchHitBadge = r.search_hit ? '<span class="pill" style="background:#e8f2f3;color:#004e56" title="このレコードは検索ヒット由来">🔍 検索ヒット</span>' : '';
+  const localBadge = r.local_hit ? '<span class="pill" style="background:#fdf4d7;color:#7a4a02" title="手動整備された方言文献ローカルDB由来">📚 ローカルDB</span>' : '';
   const extractedBadge = r.extracted ? '<span class="pill" style="background:#fef9e8;color:#996515">参考文献由来</span>' : '';
   const parentBadge = r.parent_doi ? '<span class="pill" style="background:#eef2f7;color:#475569" title="親論文DOI: '+r.parent_doi+'">親: '+r.parent_doi.slice(0,28)+(r.parent_doi.length>28?'…':'')+'</span>' : '';
   let refsExtractedBadge = '';
@@ -1316,7 +1417,7 @@ function card(r, i, kind){
     refsExtractedBadge = '<span class="pill" style="background:#e8f2f3;color:#004e56" title="既に参考文献を抽出済">孫引済</span>';
   }
   // failed-extraction case: intentionally show no badge (state still tracked internally)
-  const header = unverifiedPill + searchHitBadge + '<span class="pill">'+(r.type||'')+'</span><span class="pill">'+(r.year||'n.d.')+'</span>' + extractedBadge + parentBadge + refsExtractedBadge;
+  const header = unverifiedPill + localBadge + searchHitBadge + '<span class="pill">'+(r.type||'')+'</span><span class="pill">'+(r.year||'n.d.')+'</span>' + extractedBadge + parentBadge + refsExtractedBadge;
   const titleText = r.title || '(タイトル未抽出)';
   const fields = ['id','type','author','year','title','container','publisher','pages','doi','isbn','issn','url','pdf_url','source_checked'];
   const wideFields = ['title','url','pdf_url','source_checked'];
@@ -1782,6 +1883,8 @@ $('content').addEventListener('focusout', (e) => {
 links($('query').value);
 syncProjectPreview();
 refreshUI();
+// Kick off local DB preload as soon as the page is ready.
+ensureLocalDB();
 
 // Expose for inline onclick
 window.removeRecord = removeRecord;
