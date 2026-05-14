@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Literature Pipeline</title>
+<title>LitScope</title>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
@@ -49,6 +49,36 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .unverified-banner{background:#fef0c7;color:#8c2d11;padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.45}
 .unverified-banner strong{color:#7a4a02}
 .pill.unverified-pill{background:#fde68a;color:#7a4a02;border-color:#f59e0b;font-weight:700}
+/* LitScope logo */
+.logo{
+  display:inline-flex;align-items:baseline;gap:10px;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",system-ui,sans-serif;
+  font-size:30px;font-weight:800;letter-spacing:-0.025em;
+  color:#0e1620;margin:0;line-height:1
+}
+.logo .dot{
+  display:inline-block;width:11px;height:11px;border-radius:50%;
+  background:linear-gradient(135deg,#02929b,#0a4d56);
+  box-shadow:0 0 0 3px rgba(2,146,155,0.18);
+  transform:translateY(-2px)
+}
+.logo .word-lit{color:#0e1620}
+.logo .word-scope{
+  background:linear-gradient(135deg,#02929b 0%, #0a4d56 70%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  font-weight:700
+}
+.tagline{color:#475569;font-size:13px;margin-left:24px;font-weight:500}
+/* Intro panel */
+.intro{
+  background:#ffffff;border:1px solid var(--line);border-radius:14px;
+  padding:18px 22px;margin:18px 0 24px;
+  box-shadow:0 2px 16px rgba(2,146,155,0.04);
+  line-height:1.65;color:#1d252c
+}
+.intro p{margin:0.4em 0;font-size:16px}
+.intro p strong{color:#0a4d56}
+.intro .small{font-size:13px;color:#64717d;margin-top:8px}
 .del-btn{background:#fde68a;color:#7a4a02 !important;border-color:#f59e0b}
 .del-btn:hover{background:#fcd34d}
 .pdf-btn{display:inline-flex;align-items:center;gap:4px;background:#d04949;color:#fff !important;padding:3px 10px;border-radius:6px;font-weight:700;text-decoration:none;font-size:12px;box-shadow:0 1px 0 rgba(0,0,0,.08);transition:background .12s}
@@ -63,7 +93,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 </head>
 <body>
 <header>
-  <h1>Literature Pipeline <span class="small" style="font-weight:400">(static)</span></h1>
+  <h1 class="logo" aria-label="LitScope"><span class="dot"></span><span class="word-lit">Lit</span><span class="word-scope">Scope</span></h1>
   <div class="meta" id="counts">loading</div>
 </header>
 <main>
@@ -81,16 +111,15 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <div><label>保存名</label><input id="projectPreview" value="irabu_dialect_literature" readonly></div>
   </div>
   <div style="margin:8px 0;line-height:1.7">
-    <label style="display:block;color:var(--ink)"><input id="autoExtract" type="checkbox" style="width:auto" checked> 検索結果から孫引きも自動抽出</label>
-    <label style="display:block;color:var(--ink)"><input id="keepPrevious" type="checkbox" style="width:auto"> 前回の結果を残して追加検索（チェックなしならクリア）</label>
+    <label style="display:block;color:var(--ink)"><input id="autoExtract" type="checkbox" style="width:auto" checked> 関連論文も自動取得</label>
+    <label style="display:block;color:var(--ink)"><input id="keepPrevious" type="checkbox" style="width:auto"> 前回の結果を残して追加検索</label>
   </div>
   <div class="actions">
-    <button class="primary" id="searchBtn">検索（孫引き拡張）</button>
+    <button class="primary" id="searchBtn">検索</button>
     <button id="refreshBtn">再読込</button>
     <button class="warn" id="clearAllBtn">全削除</button>
   </div>
-  <div class="small" style="margin-top:6px">手元のローカル方言文献DB（11,000件） + Crossref + OpenAlex + CiNii Research を並列検索 → 各ヒットの参考文献も <strong>PDF / Crossref</strong> から自動取得・再検証。所要時間は親の数 × 平均30件で1〜2分目安。</div>
-  <div class="small" id="localDbStatus" style="margin-top:4px;color:#475569">📚 ローカルDB 読み込み中...</div>
+  <div class="small" id="localDbStatus" style="margin-top:6px;color:#475569">📚 ローカルDB 読み込み中...</div>
 
   <label>確認用リンク</label>
   <div class="links small" id="sourceLinks"></div>
@@ -103,8 +132,8 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <button id="zoteroBtn">Zoteroへ直接送信</button>
   </div>
   <div class="small" style="margin-top:6px">
-    ZIPには <code>.csv</code>／<code>.bib</code>／Zotero用 <code>.bib</code>／PDFのURLリスト／Derivative の5ファイルが入ります。<br>
-    Zotero送信は Zotero Desktop が起動している場合のみ動きます（<code>localhost:23119</code> に直接POST）。
+    ZIP には CSV ／ BibTeX ／ Zotero用 BibTeX ／ PDFリンク一覧 が入ります。<br>
+    Zotero 送信は Zotero Desktop が起動している必要があります。
   </div>
 
   <details style="margin-top:14px">
@@ -117,14 +146,14 @@ button:disabled{opacity:.55;cursor:not-allowed}
       <button id="dlPdfBtn">PDFリスト</button>
       <button id="dlUnvBtn">未検証CSV</button>
     </div>
-    <div class="section-title">孫引き再実行</div>
-    <div class="small" style="margin-bottom:6px">本体内の未処理 PDF/DOI から再度抽出します。検索しなおさず追加抽出だけしたいとき用。</div>
+    <div class="section-title">関連論文の追加取得</div>
+    <div class="small" style="margin-bottom:6px">本体内のレコードから、未処理のものについて関連論文を追加取得します（再検索せず追加分だけ欲しい場合）。</div>
     <div style="margin:8px 0">
-      <label style="display:inline-block;margin:0 12px 0 0;color:var(--ink)"><input id="bulkSkipProcessed" type="checkbox" style="width:auto" checked> 処理済の親をスキップ</label>
+      <label style="display:inline-block;margin:0 12px 0 0;color:var(--ink)"><input id="bulkSkipProcessed" type="checkbox" style="width:auto" checked> 処理済のレコードはスキップ</label>
     </div>
     <div class="small">対象: <span id="bulkCount">0</span>件 / 本体内 PDF/DOI 付き<span id="bulkTotalCount">0</span>件</div>
     <div class="actions">
-      <button id="bulkExtractBtn">孫引き再実行</button>
+      <button id="bulkExtractBtn">関連論文を取得</button>
       <button id="resetExtractedBtn">処理済フラグをリセット</button>
     </div>
     <div class="section-title">既存CSVを取り込む</div>
@@ -143,17 +172,23 @@ button:disabled{opacity:.55;cursor:not-allowed}
   <div class="status" id="status"></div>
 </aside>
 <section>
+  <div class="intro">
+    <p><strong>4つの書誌DBを横断検索</strong>するブラウザツールです。</p>
+    <p>手元の<strong>方言文献ローカルDB（11,000件）</strong>＋ Crossref ＋ OpenAlex ＋ CiNii Research を同時に照会し、重複は自動で1件に統合。ヒットした論文の参考文献も自動で取得して、関連論文まで一気に集めます。</p>
+    <p>カードを編集／削除して整え、<strong>ZIPダウンロード</strong>で CSV ／ BibTeX ／ Zotero用 BibTeX を取り出すか、起動中の Zotero に直接送信できます。</p>
+    <p class="small">ローカルDB由来のレコードが書誌情報の優先源。Webから取れたものは citation を補完して使います。すべてブラウザ内で動き、データは外部に送られません。</p>
+  </div>
   <div class="toolbar" style="margin-top:4px;flex-wrap:wrap">
-    <strong id="viewTitle">本体CSV<span id="recordsBadge"></span></strong>
+    <strong id="viewTitle">検索結果<span id="recordsBadge"></span></strong>
     <div class="small" style="display:flex;gap:14px;flex-wrap:wrap">
       <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
-        <input id="filterUnverified" type="checkbox" style="width:auto"> 未検証のみ表示
+        <input id="filterUnverified" type="checkbox" style="width:auto"> 要編集のみ表示
       </label>
       <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
         <input id="filterSearchHits" type="checkbox" style="width:auto"> 検索ヒットのみ
       </label>
       <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
-        <input id="hideFailed" type="checkbox" style="width:auto"> 孫引失敗を隠す
+        <input id="hideFailed" type="checkbox" style="width:auto"> 不完全なものを隠す
       </label>
     </div>
   </div>
@@ -964,7 +999,7 @@ async function extractRefsViaCrossref(parent){
 }
 
 // ============================================================================
-// Reference extraction (孫引き再検証)
+// Reference extraction (関連論文の自動取得＋検証)
 // ============================================================================
 function parseUnstructured(text){
   // Extract (author, year, title) heuristically from a free-form reference string.
@@ -1126,7 +1161,7 @@ async function bulkExtractReferences(){
     const withSource = state.records.filter(r => r.doi || r.pdf_url);
     const targets = withSource.filter(r => !skip || !r.refs_extracted);
     if (!withSource.length){
-      alert('本体CSVに DOI または PDF URL を持つレコードがありません。\nStage 1 で検索して結果を「本体へ追加」してから Stage 2 を実行してください。');
+      alert('本体に DOI または PDF URL を持つレコードがありません。先に検索を実行してから、関連論文の追加取得を行ってください。');
       return;
     }
     if (!targets.length){
@@ -1141,8 +1176,8 @@ async function bulkExtractReferences(){
     for (let n = 0; n < targets.length; n++){
       const parent = targets[n];
       const parentLabel = parent.doi || parent.pdf_url || parent.title || '(no id)';
-      window._bulkProgressCb = (k, total, src) => setStatus('Stage 2 ['+(src||'?')+'] — 親 '+(n+1)+'/'+targets.length+' ('+String(parentLabel).slice(0,40)+') — 参考文献 '+k+'/'+total+' 検証中... (累計: 確認済 '+totalVerified+' / 未検証 '+totalUnverified+')');
-      setStatus('Stage 2 — 親 '+(n+1)+'/'+targets.length+' ('+String(parentLabel).slice(0,60)+') を処理中...');
+      window._bulkProgressCb = (k, total, src) => setStatus('関連論文取得 ['+(src||'?')+'] — 元論文 '+(n+1)+'/'+targets.length+' ('+String(parentLabel).slice(0,40)+') — 参考文献 '+k+'/'+total+' 検証中... (累計: 取込済 '+totalVerified+' / 要編集 '+totalUnverified+')');
+      setStatus('関連論文取得 — 元論文 '+(n+1)+'/'+targets.length+' ('+String(parentLabel).slice(0,60)+') を処理中...');
       const { verified, unverified, refsFetched, source } = await extractRefsForParent(parent);
       totalVerified += verified;
       totalUnverified += unverified;
@@ -1168,14 +1203,14 @@ async function bulkExtractReferences(){
     );
   } catch (e){
     $('bulkExtractBtn').disabled = false;
-    setStatus('Stage 2 でエラー発生: '+e.message);
-    alert('Stage 2 でエラー発生: '+e.message+'\n\nブラウザのコンソール（F12 → Console）で詳細を確認できます。');
+    setStatus('関連論文取得でエラー発生: '+e.message);
+    alert('関連論文取得でエラー発生: '+e.message+'\n\nブラウザのコンソール（F12 → Console）で詳細を確認できます。');
     console.error('bulkExtractReferences error:', e);
   }
 }
 
 function resetExtractedFlags(){
-  if (!confirm('本体内すべての「処理済」フラグをリセットします。同じ親論文を再度孫引きできるようになります。よろしいですか？')) return;
+  if (!confirm('本体内すべての「処理済」フラグをリセットします。同じレコードからもう一度関連論文を取得できるようになります。よろしいですか？')) return;
   for (const r of state.records){ delete r.refs_extracted; }
   persist();
   setStatus('処理済フラグをリセットしました。');
@@ -1192,7 +1227,7 @@ function updateBulkCount(){
   if (btn){
     if (!withSource.length){
       btn.disabled = true;
-      btn.title = '本体CSVにDOIまたはPDF URL付きレコードがありません。Stage 1で検索して追加してください。';
+      btn.title = '本体にDOIまたはPDF URL付きレコードがありません。先に検索を実行してください。';
     } else if (!targets.length){
       btn.disabled = true;
       btn.title = '対象レコードはすべて処理済です。「処理済フラグをリセット」または「処理済の親をスキップ」のチェックを外してください。';
@@ -1430,11 +1465,11 @@ function card(r, i, kind){
   const parentBadge = r.parent_doi ? '<span class="pill" style="background:#eef2f7;color:#475569" title="親論文DOI: '+r.parent_doi+'">親: '+r.parent_doi.slice(0,28)+(r.parent_doi.length>28?'…':'')+'</span>' : '';
   let refsExtractedBadge = '';
   if (r.refs_extracted === 'pdf'){
-    refsExtractedBadge = '<span class="pill" style="background:#e8f2f3;color:#004e56" title="PDFから参考文献を抽出済">📄 PDF孫引済</span>';
+    refsExtractedBadge = '<span class="pill" style="background:#e8f2f3;color:#004e56" title="PDFから関連論文を取得済">📄 関連取得済(PDF)</span>';
   } else if (r.refs_extracted === 'crossref'){
-    refsExtractedBadge = '<span class="pill" style="background:#e3eef9;color:#16447f" title="Crossrefメタデータから参考文献を抽出済">Crossref孫引済</span>';
+    refsExtractedBadge = '<span class="pill" style="background:#e3eef9;color:#16447f" title="Crossrefメタデータから関連論文を取得済">関連取得済(Crossref)</span>';
   } else if (r.refs_extracted === true){
-    refsExtractedBadge = '<span class="pill" style="background:#e8f2f3;color:#004e56" title="既に参考文献を抽出済">孫引済</span>';
+    refsExtractedBadge = '<span class="pill" style="background:#e8f2f3;color:#004e56" title="関連論文を取得済">関連取得済</span>';
   }
   // failed-extraction case: intentionally show no badge (state still tracked internally)
   const header = unverifiedPill + localBadge + searchHitBadge + '<span class="pill">'+(r.type||'')+'</span><span class="pill">'+(r.year||'n.d.')+'</span>' + extractedBadge + parentBadge + refsExtractedBadge;
@@ -1485,7 +1520,7 @@ function render(){
     view.innerHTML = '本体CSV ('+visibleCount+' 件'
       +(h ? ' / 検索ヒット '+h : '')
       +(u ? ' / 未検証 '+u : '')
-      +(failedCount ? ' / 孫引失敗 '+failedCount+(hideFailed ? '（非表示）' : '') : '')
+      +(failedCount ? ' / 不完全 '+failedCount+(hideFailed ? '（非表示）' : '') : '')
       +')'+badge;
   }
   if (!all.length){
@@ -1566,24 +1601,24 @@ async function search(){
     const autoEl = $('autoExtract');
     const doExtract = autoEl ? autoEl.checked : true;
     if (!doExtract){
-      setStatus('検索完了: ヒット '+initial.length+' 件 (新規 '+addedHits+' 件) を本体に追加。孫引きはOFF。');
+      setStatus('検索完了: ヒット '+initial.length+' 件 (新規 '+addedHits+' 件) を本体に追加。関連論文の追加取得はOFF。');
       return;
     }
     // Phase 2: extended secondary citation extraction from each fresh search hit
     const parents = state.records.filter(r => r.search_hit && !r.refs_extracted && (r.doi || r.pdf_url));
     if (!parents.length){
-      setStatus('検索完了: ヒット '+initial.length+' 件。孫引き対象なし（DOI/PDF URLなし or すべて処理済）。');
+      setStatus('検索完了: ヒット '+initial.length+' 件。関連論文の追加取得対象なし。');
       return;
     }
-    setStatus('検索完了: ヒット '+initial.length+' 件。孫引き拡張を '+parents.length+' 件の親に対して実行...');
+    setStatus('検索完了: ヒット '+initial.length+' 件。関連論文を '+parents.length+' 件の元論文から取得します...');
     let totalVerified = 0, totalUnverified = 0, totalRefs = 0, viaPdf = 0, viaCrossref = 0, viaNone = 0;
     for (let n = 0; n < parents.length; n++){
       const parent = parents[n];
       const parentLabel = parent.doi || parent.pdf_url || parent.title || '(no id)';
       window._bulkProgressCb = (k, total, src) => setStatus(
-        '孫引き拡張 ['+(src||'?')+'] — 親 '+(n+1)+'/'+parents.length+' ('+String(parentLabel).slice(0,40)+') — 参考文献 '+k+'/'+total+' 検証中... (累計: 確認済 '+totalVerified+' / 未検証 '+totalUnverified+')'
+        '関連論文取得 ['+(src||'?')+'] — 元論文 '+(n+1)+'/'+parents.length+' ('+String(parentLabel).slice(0,40)+') — '+k+'/'+total+' 検証中... (累計: 取込済 '+totalVerified+' / 要編集 '+totalUnverified+')'
       );
-      setStatus('孫引き拡張 — 親 '+(n+1)+'/'+parents.length+' ('+String(parentLabel).slice(0,60)+') を処理中...');
+      setStatus('関連論文取得 — 元論文 '+(n+1)+'/'+parents.length+' ('+String(parentLabel).slice(0,60)+') を処理中...');
       const { verified, unverified, refsFetched, source } = await extractRefsForParent(parent);
       totalVerified += verified;
       totalUnverified += unverified;
@@ -1602,7 +1637,7 @@ async function search(){
     setStatus(
       '完了:\n'
       +'  検索ヒット '+initial.length+' 件 (新規 '+addedHits+' 件)\n'
-      +'  孫引き拡張 '+parents.length+' 親 (PDF '+viaPdf+' / Crossref '+viaCrossref+' / 取得不可 '+viaNone+')\n'
+      +'  関連論文取得 '+parents.length+' 元論文 (PDF '+viaPdf+' / Crossref '+viaCrossref+' / 取得不可 '+viaNone+')\n'
       +'  参考文献 '+totalRefs+' 件処理 → 確認済 '+totalVerified+' / 未検証 '+totalUnverified
       +(totalUnverified ? '\n\n本体タブで「未検証のみ表示」をONにしました。黄色いカードを編集／削除してから ZIP に進んでください。' : '')
     );
@@ -1678,7 +1713,7 @@ function isFailedArcExtraction(r){
   return typeof r.refs_extracted === 'string';
 }
 // Show failed-arc-extraction records by default. The user can opt to hide them
-// via the "孫引失敗を隠す" toggle in the toolbar.
+// via the "不完全なものを隠す" toggle in the toolbar.
 function hideFailedFlag(){ const el = $('hideFailed'); return el ? !!el.checked : false; }
 function visibleRecords(){
   return hideFailedFlag() ? state.records.filter(r => !isFailedArcExtraction(r)) : state.records;
@@ -1763,7 +1798,7 @@ async function downloadZip(){
     unverified.length ? '- `'+project+'_unverified.csv` — 未検証項目（編集して `unverified` 列をクリアすれば本体に戻せる）' : '',
     '',
     unverified.length ? '## 未検証項目について\n\n未検証 '+unverified.length+' 件は別CSVに分離してあります。'
-      + 'これらは Crossref の DOI lookup あるいは title 検索で確実な一致が取れなかった、孫引き由来の候補です。'
+      + 'これらは Crossref の DOI lookup あるいは title 検索で確実な一致が取れなかった、関連論文取得時の候補です。'
       + '手動で確認したら `unverified` 列を空にして本体CSVに統合してください。' : '',
   ].filter(Boolean).join('\n');
   zip.file('README.md', manifest);
