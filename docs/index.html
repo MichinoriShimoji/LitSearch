@@ -172,6 +172,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
       <button id="dlBibBtn">BibTeX</button>
       <button id="dlZotBtn">Zotero用BibTeX</button>
       <button id="dlPdfBtn">PDFリスト</button>
+      <button id="dlPdfZipBtn">PDF本体ZIP</button>
       <button id="dlUnvBtn">未検証CSV</button>
     </div>
     <div class="section-title">関連論文の追加取得</div>
@@ -1914,6 +1915,71 @@ function dlUnverified(){
   if (!u.length){ setStatus('未検証項目はありません。'); return; }
   downloadFile(project+'_unverified.csv', csvRows(u, UNVERIFIED_CSV_HEADER), 'text/csv');
 }
+async function dlPdfZip(){
+  if (typeof JSZip === 'undefined'){
+    setStatus('JSZipのロードに失敗しました。ネットワーク接続を確認してください。');
+    return;
+  }
+  const verified = verifiedRecords();
+  const candidates = verified.filter(r => r.pdf_url);
+  if (!candidates.length){
+    setStatus('PDF URL が登録されている確認済レコードがありません。');
+    return;
+  }
+  const project = projectSlug(currentProject());
+  $('dlPdfZipBtn').disabled = true;
+  setStatus('PDF '+candidates.length+' 件を取得中... (CORS拒否やリンク切れは自動でスキップ)');
+  const zip = new JSZip();
+  const usedNames = new Set();
+  const report = [];
+  let ok = 0, fail = 0, done = 0;
+  const CONCURRENCY = 4;
+  const queue = candidates.slice();
+  async function worker(){
+    while (queue.length){
+      const rec = queue.shift();
+      if (!rec) break;
+      const filename = pdfFilenameForRecord(rec, usedNames);
+      const res = await fetchPdfBlob(rec.pdf_url, 25000);
+      done++;
+      setStatus('PDF '+done+'/'+candidates.length+' 取得済 (成功 '+ok+' / 失敗 '+fail+')');
+      if (res.ok){
+        zip.file(filename, res.blob);
+        ok++;
+        report.push('- ✓ `'+filename+'` ← '+rec.pdf_url);
+      } else {
+        fail++;
+        report.push('- ✗ ('+res.reason+') '+rec.pdf_url+'  (cite: '+filename.replace(/\.pdf$/,'')+')');
+      }
+    }
+  }
+  try {
+    await Promise.all(Array.from({length: CONCURRENCY}, () => worker()));
+    zip.file('README.md', [
+      '# '+project+' — PDFまとめ',
+      '',
+      '生成日時: '+new Date().toISOString(),
+      '対象: 確認済レコード中、pdf_url 登録あり '+candidates.length+' 件',
+      '取得結果: 成功 '+ok+' / 失敗 '+fail,
+      '',
+      '## 取得ログ',
+      '',
+      report.join('\n'),
+    ].join('\n'));
+    const blob = await zip.generateAsync({type:'blob', compression:'DEFLATE'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = project+'_pdfs_'+new Date().toISOString().slice(0,10)+'.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+    setStatus('PDF ZIP ダウンロード完了: '+a.download+' (成功 '+ok+' / 失敗 '+fail+')');
+  } catch (e){
+    setStatus('PDF ZIP 生成失敗: '+e.message);
+  } finally {
+    $('dlPdfZipBtn').disabled = false;
+  }
+}
 function buildPdfList(records, project){
   const lines = ['# '+project+' — PDF URLs',
                  '',
@@ -2115,6 +2181,7 @@ $('dlCsvBtn').onclick = dlCsv;
 $('dlBibBtn').onclick = dlBib;
 $('dlZotBtn').onclick = dlZot;
 $('dlPdfBtn').onclick = dlPdfList;
+$('dlPdfZipBtn').onclick = dlPdfZip;
 $('dlUnvBtn').onclick = dlUnverified;
 $('importCsv').onchange = e => { if (e.target.files[0]) importCsv(e.target.files[0]); e.target.value=''; };
 $('clearProjectBtn').onclick = clearProject;
