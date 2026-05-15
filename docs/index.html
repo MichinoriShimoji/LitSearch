@@ -171,6 +171,11 @@ button:disabled{opacity:.55;cursor:not-allowed}
       <button id="refreshBtn">再読込</button>
       <button class="warn" id="clearAllBtn">全削除</button>
     </div>
+    <div class="progress" id="progressBox" aria-live="polite">
+      <div class="progress-label"><span id="progressLabel">処理中...</span><span id="progressPercent"></span></div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+    <div class="status" id="status"></div>
     <div class="small" id="localDbStatus" style="margin-top:8px;color:#475569">ローカルDB 読み込み中...</div>
   </div>
 
@@ -228,11 +233,6 @@ button:disabled{opacity:.55;cursor:not-allowed}
     </div>
   </details>
 
-  <div class="progress" id="progressBox" aria-live="polite">
-    <div class="progress-label"><span id="progressLabel">処理中...</span><span id="progressPercent"></span></div>
-    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-  </div>
-  <div class="status" id="status"></div>
 </aside>
 <section>
   <div class="intro">
