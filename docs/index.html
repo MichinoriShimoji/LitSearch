@@ -900,6 +900,7 @@ const PDF_NO_CORS_HOSTS = [
   'zenodo.org',
   'doi.org', // typically redirects to a host that blocks CORS
   'repository.ninjal.ac.jp',
+  'repo.nii.ac.jp', // institutional repositories on NII WEKO (matches *.repo.nii.ac.jp)
   'www.jstage.jst.go.jp',
   'onlinelibrary.wiley.com',
   'link.springer.com',
@@ -913,8 +914,16 @@ function isLikelyCorsBlocked(url){
     return PDF_NO_CORS_HOSTS.some(h => u.host === h || u.host.endsWith('.'+h));
   } catch (e){ return false; }
 }
+function isMixedContentBlocked(url){
+  // HTTPS pages cannot fetch http:// resources; the browser blocks the request
+  // and logs a noisy "Mixed Content" error. Detect and skip silently.
+  try {
+    return location.protocol === 'https:' && new URL(url).protocol === 'http:';
+  } catch (e){ return false; }
+}
 async function extractTextFromPdfUrl(url){
   if (!window.pdfjsLib) throw new Error('PDF.jsが読み込まれていません。');
+  if (isMixedContentBlocked(url)) throw new Error('Mixed content (http→https不可): '+(new URL(url)).host);
   if (isLikelyCorsBlocked(url)) throw new Error('CORSが許可されないと既知のドメイン: '+(new URL(url)).host);
   // 1) Pre-flight HEAD check (fast fail on CORS / 404) to avoid PDF.js hanging.
   try {
