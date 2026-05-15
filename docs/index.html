@@ -1093,6 +1093,46 @@ function pickConfidentMatch(results, parsed){
   return null;
 }
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+// Filter PDF/Crossref-extracted references against the original search criteria
+// so we don't waste a DOI lookup + searchAll on every citation, and don't pollute
+// the cards list with unverified records that the user has no interest in.
+//
+// Match rules:
+//   - query: at least one query token (CJK ≥2 chars, Latin >3 chars, case-insensitive)
+//            must appear somewhere in the ref text (unstructured + parsed fields).
+//   - author: any token of the author name (≥3 chars for Latin, ≥1 for CJK) must
+//             appear in the ref text. Handles "Shimoji Michinori" → "Shimoji, M." etc.
+//
+// Called only when parent.search_query / parent.search_author exist (the parent
+// came from a current search). For bulk-extract from older records without
+// search context, no filtering applies.
+function refMatchesSearchCriteria(ref, query, author){
+  let text = String(ref.unstructured || '');
+  if (ref['article-title']) text += ' ' + ref['article-title'];
+  if (ref['journal-title']) text += ' ' + ref['journal-title'];
+  if (ref.author) text += ' ' + (typeof ref.author === 'string' ? ref.author : JSON.stringify(ref.author));
+  if (ref.title) text += ' ' + ref.title;
+  const textLow = text.toLowerCase();
+  const hasCJKChar = (s) => /[　-ヿ㐀-鿿＀-￯]/.test(s);
+  if (query){
+    const terms = String(query).toLowerCase().split(/\s+/).filter(x => {
+      if (!x) return false;
+      return hasCJKChar(x) ? x.length >= 2 : x.length > 3;
+    });
+    if (terms.length && !terms.some(t => textLow.includes(t))) return false;
+  }
+  if (author){
+    const a = String(author).trim();
+    if (hasCJKChar(a)){
+      const tokens = a.split(/[\s,，、]+/).filter(t => t.length >= 1);
+      if (tokens.length && !tokens.some(t => text.includes(t))) return false;
+    } else {
+      const tokens = a.toLowerCase().split(/[\s,]+/).filter(t => t.length >= 3);
+      if (tokens.length && !tokens.some(t => textLow.includes(t))) return false;
+    }
+  }
+  return true;
+}
 async function processReference(ref, parent, queryStr){
   // 1) Try DOI lookup
   if (ref.DOI){
@@ -1171,6 +1211,18 @@ async function extractRefsForParent(parent){
     if (!refs.length){
       parent.refs_extracted = 'no_refs ('+(reason||'no_pdf_or_doi')+')';
       return { verified, unverified, refsFetched, source: '', reason };
+    }
+    // Pre-filter refs against the original search criteria when available.
+    // This cuts unverified noise dramatically: only references that mention the
+    // searched keyword or author make it through to the DOI/title-search stage.
+    const sq = parent.search_query || '';
+    const sa = parent.search_author || '';
+    if (sq || sa){
+      const before = refs.length;
+      refs = refs.filter(r => refMatchesSearchCriteria(r, sq, sa));
+      if (refs.length < before){
+        console.log('[ref-filter] '+before+' → '+refs.length+' (parent: '+(parent.title||parent.doi||'?').slice(0,60)+')');
+      }
     }
     refsFetched = refs.length;
     for (let k = 0; k < refs.length; k++){
