@@ -376,6 +376,56 @@ function bibEscape(s, fieldName){
 function creatorsToBibAuthor(author){
   return String(author||'').split(';').map(a=>a.trim()).filter(Boolean).join(' and ');
 }
+const AUTHOR_YOMI_OVERRIDES = new Map([
+  ['下地, 理則', 'Shimoji, Michinori'],
+  ['下地理則', 'Shimoji, Michinori'],
+  ['富浜, 定吉', 'Tomihama, Sadakichi'],
+  ['富浜定吉', 'Tomihama, Sadakichi'],
+  ['衣畑, 智秀', 'Kinuhata, Tomohide'],
+  ['衣畑智秀', 'Kinuhata, Tomohide'],
+  ['狩俣, 繁久', 'Karimata, Shigehisa'],
+  ['狩俣繁久', 'Karimata, Shigehisa'],
+  ['五十嵐, 陽介', 'Igarashi, Yosuke'],
+  ['五十嵐陽介', 'Igarashi, Yosuke'],
+  ['上地, 徳男', 'Uechi, Tokuo'],
+  ['上地徳男', 'Uechi, Tokuo'],
+  ['仲宗根, 政善', 'Nakasone, Seizen'],
+  ['仲宗根政善', 'Nakasone, Seizen'],
+  ['本永, 守靖', 'Motonaga, Moriyasu'],
+  ['本永守靖', 'Motonaga, Moriyasu'],
+  ['沢木, 幹栄', 'Sawaki, Mikiei'],
+  ['沢木幹栄', 'Sawaki, Mikiei'],
+]);
+function normalizeAuthorNameForYomi(author){
+  return String(author||'')
+    .replace(/\s+/g,'')
+    .replace(/[，、]/g, ',')
+    .replace(/,/, ', ')
+    .trim();
+}
+function inferCreatorYomi(author){
+  const raw = String(author||'').trim();
+  if (!raw) return '';
+  const normalized = normalizeAuthorNameForYomi(raw.replace(/ほか$/,'').replace(/\bet al\.?$/i,''));
+  return AUTHOR_YOMI_OVERRIDES.get(raw)
+    || AUTHOR_YOMI_OVERRIDES.get(normalized)
+    || AUTHOR_YOMI_OVERRIDES.get(normalized.replace(/,\s*/,''))
+    || '';
+}
+function yomiForRecord(r){
+  const explicit = String(r.yomi||'').trim();
+  if (explicit) return explicit;
+  if (!isCJK(r.author)) return '';
+  const inferred = String(r.author||'').split(';').map(inferCreatorYomi).filter(Boolean);
+  return inferred.length ? inferred.join('; ') : '';
+}
+function ensureRecordYomi(r){
+  if (r && !String(r.yomi||'').trim()){
+    const yomi = yomiForRecord(r);
+    if (yomi) r.yomi = yomi;
+  }
+  return r;
+}
 function bibKeyForRecord(r){
   // ASCII-only: "lastname[_lastname...]year" — e.g. shimoji2008, shimoji_hirosawa2022.
   // For CJK author records, the `yomi` field (Romanized reading from CiNii)
@@ -386,7 +436,7 @@ function bibKeyForRecord(r){
     .replace(/[̀-ͯ]/g,'') // strip Latin diacritics
     .toLowerCase()
     .replace(/[^a-z0-9]/g,''); // ASCII alphanumerics only
-  const src = String(r.yomi||'').trim() || String(r.author||'');
+  const src = yomiForRecord(r) || String(r.author||'');
   const authors = src.split(/;/).map(a => a.trim()).filter(Boolean);
   let lasts = authors.map(a => sanitize(a.split(',')[0])).filter(Boolean);
   if (lasts.length > 3) lasts = lasts.slice(0,2).concat('etal');
@@ -410,12 +460,13 @@ function toBib(records, tag){
     const type = r.type==='book'?'book':r.type==='chapter'?'incollection':r.type==='thesis'?'phdthesis':(r.type==='project'||r.type==='dataset')?'misc':'article';
     const fields = [];
     fields.push(['author', creatorsToBibAuthor(r.author)]);
-    if (r.yomi){
+    const yomi = yomiForRecord(r);
+    if (yomi){
       // `yomi`: recognized by jecon.bst and biblatex-japanese for romaji display.
       // `sortname`: standard biblatex sort key — keeps CJK entries sorting
       //             alongside Latin entries by the romanized form.
-      fields.push(['yomi', creatorsToBibAuthor(r.yomi)]);
-      fields.push(['sortname', creatorsToBibAuthor(r.yomi)]);
+      fields.push(['yomi', creatorsToBibAuthor(yomi)]);
+      fields.push(['sortname', creatorsToBibAuthor(yomi)]);
     }
     fields.push(['year', r.year]);
     fields.push(['title', r.title]);
@@ -490,6 +541,7 @@ function normalizeCrossref(item, query){
     source_checked: 'Crossref search: '+query+(containerLang?' (lang='+containerLang+')':'')+altNote,
     alt_title: altTitle,
   };
+  ensureRecordYomi(r);
   r.harvard_reference = makeHarvard(r);
   return r;
 }
@@ -807,6 +859,7 @@ function normalizeCinii(item, query){
     abstract_note: item.description || '',
     source_checked: 'CiNii search: '+query + (ncid ? ' (NCID: '+ncid+')' : ''),
   };
+  ensureRecordYomi(r);
   r.harvard_reference = makeHarvard(r);
   return r;
 }
@@ -844,6 +897,7 @@ function normalizeOpenAlex(item, query){
     abstract_note: '',
     source_checked: 'OpenAlex search: '+query,
   };
+  ensureRecordYomi(r);
   r.harvard_reference = makeHarvard(r);
   return r;
 }
@@ -1479,6 +1533,7 @@ function normalizeLocalRecord(rec){
     region: String(rec.region||''),
     subregion: String(rec.subregion||''),
   };
+  ensureRecordYomi(r);
   r.harvard_reference = makeHarvard(r);
   // Pre-compute lowercase haystack for fast filtering
   r._haystack = (r.title+' '+r.container+' '+r.abstract_note+' '+r.region+' '+r.subregion+' '+r.author+' '+r.scope).toLowerCase();
@@ -1705,7 +1760,7 @@ function card(r, i, kind){
     + unverifiedBanner
     + '<div class="small">'+(r.author||'')+'</div><div class="small">'+(r.container||r.publisher||'')+'</div>'
     + '<div class="small links">'+pdf+land+moreLinks+'</div>'
-    + '<div class="edit">'+fields.map(f => inputField(f, r[f], wideFields.includes(f))).join('')+'</div>'
+    + '<div class="edit">'+fields.map(f => inputField(f, f === 'yomi' ? yomiForRecord(r) : r[f], wideFields.includes(f))).join('')+'</div>'
     + '<div class="actions">'+actionBtns+'</div>'
     + '</div>';
 }
@@ -2161,6 +2216,7 @@ function importCsv(file){
       if (!confirm('このプロジェクトの本体レコード（現在 '+state.records.length+' 件）を、アップロードした '+parsed.length+' 件で置き換えますか？')) return;
       // Normalize the "unverified" field if present (string from CSV → boolean)
       for (const r of parsed){
+        ensureRecordYomi(r);
         if (typeof r.unverified === 'string'){
           r.unverified = (r.unverified.toLowerCase() === 'true' || r.unverified === '1');
         }
