@@ -312,11 +312,20 @@ function crossrefYear(item){
     || yearFromDateParts(item['published-print']) || yearFromDateParts(item['published-online'])
     || yearFromDateParts(item.created) || yearFromDateParts(item.deposited) || yearFromDateParts(item.indexed) || '';
 }
-function bibEscape(s){
+// Fields whose values are wrapped in verbatim macros (\url, \href, etc.) by
+// biblatex. Backslash-escaped specials inside these become literal text, so
+// we must pass them through unmodified.
+const BIB_VERBATIM_FIELDS = new Set(['doi','url','eprint','file']);
+function bibEscape(s, fieldName){
   // Strip BibTeX-structural braces (sometimes users have {Foo} to prevent
   // capitalisation; we drop both forms for safety since they break when the
   // value is wrapped in {}).
   let v = String(s||'').replace(/[{}]/g,'');
+  if (fieldName && BIB_VERBATIM_FIELDS.has(fieldName)){
+    // Verbatim fields go through \url{...} / \href{...}; escaping `_` etc.
+    // would surface as literal `\_` in the typeset PDF. Pass through as-is.
+    return v;
+  }
   // TeX special characters that must be escaped in any value passed through
   // bibtex / biber. Order matters: backslash first so we don't double-escape
   // backslashes introduced by later substitutions.
@@ -384,7 +393,7 @@ function toBib(records, tag){
     if (r.abstract_note) fields.push(['abstract', r.abstract_note]);
     if (r.source_checked) fields.push(['note', r.source_checked]);
     if (tag) fields.push(['keywords', tag]);
-    const body = fields.filter(([,v])=>v).map(([k,v])=>'  '+k+' = {'+bibEscape(v)+'},').join('\n');
+    const body = fields.filter(([,v])=>v).map(([k,v])=>'  '+k+' = {'+bibEscape(v, k)+'},').join('\n');
     return '@'+type+'{'+key+',\n'+body+'\n}';
   }).join('\n\n') + '\n';
 }
