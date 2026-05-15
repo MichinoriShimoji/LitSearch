@@ -563,34 +563,57 @@ async function enrichCiniiUrl(record){
         record.source_checked = (record.source_checked || '') + ' [CiNii-enriched citation]';
       }
     }
-    // ---- 1c) Yomi (romanized author readings) from any ja-Latn variant of
-    //          dc:creator. CiNii stores names in multiple language tags;
-    //          ja-Latn (e.g. "Shimoji, Michinori") is what we want for cite-key
-    //          generation and biblatex sortname.
+    // ---- 1c) Yomi (romanized author readings) extracted from creator
+    //          metadata. CiNii Research stores creator names per language
+    //          inside `creator[i].foaf:name[j]` (Researcher entities) or
+    //          `dc:creator` (legacy). Language tags can be `ja-Latn`,
+    //          `*-Latn`, or simply `en` for the romanized form (e.g.
+    //          "SHIMOJI Michinori"). We collect each creator's preferred
+    //          romanized form, in author order, so the alignment with the
+    //          `author` field is preserved.
     if (!record.yomi){
-      const latnNames = [];
-      const collectLatn = (x) => {
-        if (!x) return;
-        if (Array.isArray(x)){ for (const c of x) collectLatn(c); return; }
-        if (typeof x !== 'object') return;
-        const lang = String(x['@language']||'').toLowerCase();
-        const value = x['@value'];
-        if (value && (lang === 'ja-latn' || lang.endsWith('-latn'))){
-          latnNames.push(String(value).trim());
-        }
-        for (const k of Object.keys(x)){
-          if (k.startsWith('@')) continue;
-          collectLatn(x[k]);
-        }
+      const isRomanLang = (lang) => {
+        const l = String(lang||'').toLowerCase();
+        return l === 'en' || l === 'ja-latn' || l.endsWith('-latn');
       };
-      collectLatn(data['dc:creator']);
-      if (latnNames.length){
+      const pickRomanFromCreator = (c) => {
+        if (!c || typeof c !== 'object') return '';
+        // Try common name containers: foaf:name, name, dc:creator nested
+        const containers = [];
+        for (const key of ['foaf:name', 'name', 'dc:creator']){
+          if (Array.isArray(c[key])) containers.push(c[key]);
+        }
+        // Also accept a flat {@language, @value} creator entry
+        if (c['@language'] && c['@value']) containers.push([c]);
+        for (const arr of containers){
+          for (const n of arr){
+            if (n && typeof n === 'object' && isRomanLang(n['@language']) && n['@value']){
+              return String(n['@value']).trim();
+            }
+          }
+        }
+        return '';
+      };
+      const creators = data.creator || data['dc:creator'] || [];
+      const romanByCreator = (Array.isArray(creators) ? creators : [creators])
+        .map(pickRomanFromCreator)
+        .filter(Boolean);
+      if (romanByCreator.length){
         // Normalize each to "Family, Given" form (mirrors normalizeCinii author handling)
-        const yomi = latnNames.map(s => {
+        const yomi = romanByCreator.map(s => {
           const t = s.trim();
           if (t.includes(',')) return t;
+          // CiNii's en form is sometimes "SHIMOJI Michinori" (all-caps family first)
+          // or "Michinori Shimoji" (Western order). Heuristic: if exactly two
+          // tokens and the first is all-uppercase, treat as Family Given.
           const m = t.match(/^(\S+)\s+(.+)$/);
-          return m ? m[1]+', '+m[2] : t;
+          if (!m) return t;
+          const [, a, b] = m;
+          if (a === a.toUpperCase() && a !== a.toLowerCase()){
+            // ALL-CAPS first token → family name
+            return a.charAt(0) + a.slice(1).toLowerCase() + ', ' + b;
+          }
+          return a + ', ' + b;
         }).join('; ');
         if (yomi) record.yomi = yomi;
       }
