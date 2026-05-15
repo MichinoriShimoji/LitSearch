@@ -1322,7 +1322,7 @@ async function bulkExtractReferences(){
     }
     const withPdf = targets.filter(r => r.pdf_url).length;
     const withDoiOnly = targets.length - withPdf;
-    if (!confirm(targets.length+' 件のレコードから参考文献を一括抽出します。\n  PDF読込試行: '+withPdf+' 件\n  Crossrefのみ: '+withDoiOnly+' 件\n各レコードあたり数秒〜数十秒。続けますか？')) return;
+    setStatus(targets.length+' 件のレコードから参考文献を抽出中... (PDF読込試行 '+withPdf+' 件 / Crossrefのみ '+withDoiOnly+' 件)');
     $('bulkExtractBtn').disabled = true;
     let totalVerified = 0, totalUnverified = 0, totalRefs = 0, viaPdf = 0, viaCrossref = 0, viaNone = 0;
     for (let n = 0; n < targets.length; n++){
@@ -1359,10 +1359,9 @@ async function bulkExtractReferences(){
 }
 
 function resetExtractedFlags(){
-  if (!confirm('本体内すべての「処理済」フラグをリセットします。同じレコードからもう一度関連論文を取得できるようになります。よろしいですか？')) return;
   for (const r of state.records){ delete r.refs_extracted; }
   persist();
-  setStatus('処理済フラグをリセットしました。');
+  setStatus('処理済フラグをリセットしました。同じレコードからもう一度関連論文を取得できます。');
 }
 
 function updateBulkCount(){
@@ -1718,14 +1717,11 @@ async function search(){
   const sigLabel = [q, author?'著者:'+author:''].filter(Boolean).join(' / ');
   links(q || author);
   $('searchBtn').disabled = true;
-  // Optional: clear previous records unless user opted in to accumulate
+  // Optional: clear previous records unless user opted in to accumulate.
+  // Re-running a search silently clears prior records — users can opt in to
+  // the additive mode via the 「前回の結果を残して追加検索」 checkbox.
   const keepPrev = (($('keepPrevious')||{}).checked);
   if (!keepPrev && state.records.length){
-    if (!confirm('現在の本体レコード '+state.records.length+' 件をクリアして「'+sigLabel+'」で新しく検索します。続けますか？\n（前回の結果も残したい場合はキャンセル → 「前回の結果を残して追加検索」にチェックを入れてください）')){
-      $('searchBtn').disabled = false;
-      setStatus('検索をキャンセルしました。');
-      return;
-    }
     state.records = [];
     saveProjectState(currentProject(), { records: [] });
     render();
@@ -1810,7 +1806,6 @@ function saveRecord(i){
   setStatus('本体CSVの編集を保存しました。');
 }
 function removeRecord(i){
-  if (!confirm('この本体レコードを削除しますか？')) return;
   state.records.splice(i,1);
   persist();
   setStatus('削除しました。');
@@ -1923,9 +1918,6 @@ async function downloadZip(){
   }
   const verified = verifiedRecords();
   const unverified = unverifiedRecords();
-  if (unverified.length){
-    if (!confirm(unverified.length+' 件が未検証のままです。\n\nOK = 確認済みのみをCSV/Bibに含め、未検証は別ファイル (unverified.csv) として同梱して続行。\nCancel = 中断して本体タブで編集／削除する。')) return;
-  }
   const f = projectFiles(currentProject());
   const project = projectSlug(currentProject());
   const tag = $('tag').value;
