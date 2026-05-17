@@ -7,6 +7,7 @@ authors:
   - family-names: "Shimoji"
     given-names: "Michinori"
     affiliation: "Kyushu University"
+    orcid: "https://orcid.org/0000-0002-6185-1453"
 version: "1.0.0"
 date-released: "2026-05-17"
 url: "https://michinorishimoji.github.io/LitScope/"
