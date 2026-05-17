@@ -191,7 +191,6 @@ button:disabled{opacity:.55;cursor:not-allowed}
   <div class="panel-heading"><span class="step-badge">4</span>出力</div>
   <div class="actions">
     <button class="primary" id="zipBtn">ZIPでまとめてダウンロード</button>
-    <button id="dlLatexBtn">LaTeX検証tex</button>
   </div>
   <label class="small" style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;cursor:pointer">
     <input id="includePdfsInZip" type="checkbox" checked style="width:auto"> PDF本体も同梱（取得可能なもののみ）
@@ -2213,26 +2212,6 @@ function addLatexSmokeTestFolder(zip, records, bibContent, project){
   ].join('\n'));
   return { folderName, texFilename, bibFilename };
 }
-function dlLatexTest(){
-  const project = projectSlug(currentProject());
-  const records = verifiedRecords();
-  if (!records.length){ setStatus('LaTeX検証用に出力できる確認済レコードがありません。'); return; }
-  if (typeof JSZip === 'undefined'){
-    setStatus('JSZipのロードに失敗しました。ネットワーク接続を確認してください。');
-    return;
-  }
-  const zip = new JSZip();
-  addLatexSmokeTestFolder(zip, records, toBib(records, ''), project);
-  zip.generateAsync({type:'blob', compression:'DEFLATE'}).then(blob => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = project+'_latex_smoke_test.zip';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 500);
-    setStatus('LaTeX検証ZIPを作成しました: '+a.download);
-  }).catch(e => setStatus('LaTeX検証ZIP生成失敗: '+e.message));
-}
 function dlUnverified(){
   const project = projectSlug(currentProject());
   const u = unverifiedRecords();
@@ -2587,7 +2566,6 @@ $('dlCsvBtn').onclick = dlCsv;
 $('dlBibBtn').onclick = dlBib;
 $('dlZotBtn').onclick = dlZot;
 $('dlPdfBtn').onclick = dlPdfList;
-$('dlLatexBtn').onclick = dlLatexTest;
 $('dlPdfZipBtn').onclick = dlPdfZip;
 $('dlUnvBtn').onclick = dlUnverified;
 $('importCsv').onchange = e => { if (e.target.files[0]) importCsv(e.target.files[0]); e.target.value=''; };
