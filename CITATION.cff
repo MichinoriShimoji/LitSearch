@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use LitScope, please cite it as below."
+type: software
+title: "LitScope"
+abstract: "A browser-based literature search and export tool for Japanese and Ryukyuan dialect and linguistics research."
+authors:
+  - family-names: "Shimoji"
+    given-names: "Michinori"
+    affiliation: "Kyushu University"
+version: "1.0.0"
+date-released: "2026-05-17"
+url: "https://michinorishimoji.github.io/LitScope/"
+repository-code: "https://github.com/MichinoriShimoji/LitScope"
+keywords:
+  - dialectology
+  - Japanese dialects
+  - Ryukyuan languages
+  - bibliography
+  - BibTeX
+  - Zotero
+references:
+  - type: data
+    title: "地域別方言研究文献リスト"
+    authors:
+      - family-names: "Matsuoka"
+        given-names: "Aoi"
+        affiliation: "Fukuoka University"
+    doi: "10.5281/zenodo.20248983"
+    url: "https://zenodo.org/records/20248983"
+    date-released: "2026-05-17"

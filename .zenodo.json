@@ -1,0 +1,34 @@
+{
+  "title": "LitScope",
+  "upload_type": "software",
+  "description": "A browser-based literature search and export tool for Japanese and Ryukyuan dialect and linguistics research. LitScope combines a local bibliography based on Aoi Matsuoka's Regional Dialect Research Bibliography with live metadata search from CiNii Research, OpenAlex, and Crossref, and exports CSV, BibTeX, Zotero-ready BibTeX, and PDF URL lists.",
+  "creators": [
+    {
+      "name": "Shimoji, Michinori",
+      "affiliation": "Kyushu University"
+    }
+  ],
+  "access_right": "open",
+  "keywords": [
+    "dialectology",
+    "Japanese dialects",
+    "Ryukyuan languages",
+    "bibliography",
+    "BibTeX",
+    "Zotero"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "10.5281/zenodo.20248983",
+      "relation": "isDerivedFrom",
+      "scheme": "doi",
+      "resource_type": "dataset"
+    },
+    {
+      "identifier": "https://michinorishimoji.github.io/LitScope/",
+      "relation": "isSupplementTo",
+      "scheme": "url",
+      "resource_type": "software"
+    }
+  ]
+}
