@@ -153,12 +153,9 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <div class="field-help">入力した場合はキーワードと AND 条件で絞り込みます。</div>
     <div class="row">
       <div><label>プロジェクトID</label><input id="project" value="irabu"></div>
-      <div><label>引用キーワード</label><input id="tag" value="Irabu"></div>
-    </div>
-    <div class="row">
       <div><label>表示件数</label><input id="rows" type="number" value="10" min="1" max="50"></div>
-      <div><label>保存名</label><input id="projectPreview" value="irabu_dialect_literature" readonly></div>
     </div>
+    <label>保存名</label><input id="projectPreview" value="irabu_dialect_literature" readonly>
   </div>
 
   <div class="side-panel subtle">
@@ -196,8 +193,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <input id="includePdfsInZip" type="checkbox" checked style="width:auto"> PDF本体も同梱（取得可能なもののみ）
   </label>
   <div class="small" style="margin-top:4px">
-    ZIP には CSV ／ BibTeX ／ Zotero用 BibTeX ／ PDFリンク一覧 が入ります。<br>
-    Zotero へは <strong>Zotero用BibTeX</strong> を File → Import またはドラッグ＆ドロップで取り込んでください。
+    ZIP には CSV ／ BibTeX ／ PDFリンク一覧 が入ります。
   </div>
 
   <details style="margin-top:14px">
@@ -206,7 +202,6 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <div class="actions">
       <button id="dlCsvBtn">CSV</button>
       <button id="dlBibBtn">BibTeX</button>
-      <button id="dlZotBtn">Zotero用BibTeX</button>
       <button id="dlPdfBtn">PDFリスト</button>
       <button id="dlPdfZipBtn">PDF本体ZIP</button>
       <button id="dlUnvBtn">未検証CSV</button>
@@ -242,7 +237,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <div class="intro-flow" aria-label="基本の流れ">
       <div class="flow-item"><strong>1. 検索</strong><span>キーワードや著者名でローカルDBと外部DBを横断検索。</span></div>
       <div class="flow-item"><strong>2. 確認・編集</strong><span>結果カードで書誌情報、PDF、未検証候補を確認。</span></div>
-      <div class="flow-item"><strong>3. 出力</strong><span>CSV、BibTeX、Zotero用BibTeXをZIPで保存。</span></div>
+      <div class="flow-item"><strong>3. 出力</strong><span>CSV、BibTeX、PDFリンク一覧をZIPで保存。</span></div>
     </div>
     <p class="small">書誌情報はローカルDBを優先し、Web 由来の情報は補完として扱います。検索処理はブラウザ内で行われ、作業データはサーバーへ保存されません。</p>
   </div>
@@ -288,13 +283,12 @@ function slug(input){
 function projectFiles(projectInput){
   const project = projectSlug(projectInput);
   if (project === DEFAULT_PROJECT){
-    return { project, csv:'irabu_dialect_literature.csv', bib:'irabu_dialect_literature.bib', zoteroBib:'zotero_import_irabu_tagged.bib', derivative:'irabu_derivative_candidate_verification.csv' };
+    return { project, csv:'irabu_dialect_literature.csv', bib:'irabu_dialect_literature.bib', derivative:'irabu_derivative_candidate_verification.csv' };
   }
   return {
     project,
     csv: project+'_literature.csv',
     bib: project+'_literature.bib',
-    zoteroBib: project+'_zotero_import_tagged.bib',
     derivative: project+'_derivative_candidate_verification.csv',
   };
 }
@@ -469,7 +463,7 @@ function citeKeysForRecords(records){
     return key;
   });
 }
-function toBib(records, tag){
+function toBib(records){
   const keys = citeKeysForRecords(records);
   return records.map((r, i) => {
     const key = keys[i];
@@ -499,7 +493,6 @@ function toBib(records, tag){
     if (r.url) fields.push(['url', r.url]);
     if (r.abstract_note) fields.push(['abstract', r.abstract_note]);
     if (r.source_checked) fields.push(['note', r.source_checked]);
-    if (tag) fields.push(['keywords', tag]);
     const body = fields.filter(([,v])=>v).map(([k,v])=>'  '+k+' = {'+bibEscape(v, k)+'},').join('\n');
     return '@'+type+'{'+key+',\n'+body+'\n}';
   }).join('\n\n') + '\n';
@@ -2080,11 +2073,7 @@ function dlCsv(){
 }
 function dlBib(){
   const f = projectFiles(currentProject());
-  downloadFile(f.bib, toBib(verifiedRecords(), ''), 'application/x-bibtex');
-}
-function dlZot(){
-  const f = projectFiles(currentProject());
-  downloadFile(f.zoteroBib, toBib(verifiedRecords(), $('tag').value), 'application/x-bibtex');
+  downloadFile(f.bib, toBib(verifiedRecords()), 'application/x-bibtex');
 }
 function dlUnverified(){
   const project = projectSlug(currentProject());
@@ -2299,12 +2288,10 @@ async function downloadZip(){
   const includePdfs = (($('includePdfsInZip')||{}).checked);
   const f = projectFiles(currentProject());
   const project = projectSlug(currentProject());
-  const tag = $('tag').value;
   const zip = new JSZip();
-  const bibContent = toBib(verified, '');
+  const bibContent = toBib(verified);
   zip.file(f.csv, csvRows(verified, CSV_HEADER));
   zip.file(f.bib, bibContent);
-  zip.file(f.zoteroBib, toBib(verified, tag));
   zip.file(project+'_pdf_urls.md', buildPdfList(verified, project));
   if (unverified.length){
     zip.file(project+'_unverified.csv', csvRows(unverified, UNVERIFIED_CSV_HEADER));
@@ -2355,8 +2342,7 @@ async function downloadZip(){
     '## ファイル一覧',
     '',
     '- `'+f.csv+'` — 本体レコードCSV（確認済のみ）',
-    '- `'+f.bib+'` — BibTeX（確認済のみ、タグなし）',
-    '- `'+f.zoteroBib+'` — BibTeX（確認済のみ、Zotero用 keywords='+tag+' 付き）',
+    '- `'+f.bib+'` — BibTeX（確認済のみ）',
     '- `'+project+'_pdf_urls.md` — PDF URLリスト（確認済のみ）',
     pdfOk ? '- `pdfs/` — 取得できた PDF '+pdfOk+' 件（ファイル名は BibTeX の cite key と一致）' : '',
     unverified.length ? '- `'+project+'_unverified.csv` — 未検証項目（編集して `unverified` 列をクリアすれば本体に戻せる）' : '',
@@ -2436,7 +2422,6 @@ $('hideFailed').onchange = render;
 $('zipBtn').onclick = downloadZip;
 $('dlCsvBtn').onclick = dlCsv;
 $('dlBibBtn').onclick = dlBib;
-$('dlZotBtn').onclick = dlZot;
 $('dlPdfBtn').onclick = dlPdfList;
 $('dlPdfZipBtn').onclick = dlPdfZip;
 $('dlUnvBtn').onclick = dlUnverified;

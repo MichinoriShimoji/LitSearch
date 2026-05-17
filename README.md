@@ -16,8 +16,7 @@ DOI: https://doi.org/10.5281/zenodo.20257984
 - **CiNii Research / OpenAlex / Crossref** のリアルタイム検索を並列に追加
 - 重複は自動で1件に統合（タイトル＋年＋著者ベース、サブタイトル差・スクリプト差にも対応）
 - ヒット論文の参考文献を PDF（PDF.js）または Crossref メタから自動取得し、関連論文まで一気に拡張
-- 結果カードは編集／削除可。**ZIP** で CSV ／ BibTeX ／ Zotero用 BibTeX ／ PDFリンク一覧を取り出せる
-- Zotero 用 BibTeX を出力（File → Import またはドラッグ＆ドロップで取り込み）
+- 結果カードは編集／削除可。**ZIP** で CSV ／ BibTeX ／ PDFリンク一覧を取り出せる
 - すべてブラウザ内で完結。サーバー送信なし
 
 ## ファイル構成
@@ -27,7 +26,6 @@ DOI: https://doi.org/10.5281/zenodo.20257984
 | `docs/index.html` | ツール本体（self-contained, ES module）|
 | `docs/data/hougen_search_results.csv` | 松岡葵氏作成 地域別方言研究文献リスト（Zenodo DOI: `10.5281/zenodo.20248983`） |
 | `irabu_dialect_literature.csv` / `.bib` | 伊良部島方言の文献リスト |
-| `zotero_import_irabu_tagged.bib` | Zotero 取り込み用（tag付き） |
 | `irabu_derivative_candidate_verification.csv` | 未確認候補 |
 | `shiiba_*.csv` / `.bib` | 椎葉方言（初期段階） |
 

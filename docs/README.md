@@ -28,7 +28,6 @@ DOI: https://doi.org/10.5281/zenodo.20257984
    - 取れた参考文献は DOI lookup / title 検索で再検証
 4. カードを編集 or 削除して整える
 5. **ZIPでまとめてダウンロード** で完成版を取得
-6. Zotero に取り込みたい場合は、Zotero 用 BibTeX（`zotero_import_*.bib`）を File → Import またはドラッグ＆ドロップ
 
 ## 重要な設計
 
@@ -36,13 +35,7 @@ DOI: https://doi.org/10.5281/zenodo.20257984
 - **CiNii > Crossref/OpenAlex**：日本語タイトル ⇔ 英語タイトルの自動切替（CiNii の dc:language で判定）
 - **重複統合**：DOI ・タイトル＋年＋著者・タイトル prefix・タイトル類似度の4軸でマージ
 - **データはブラウザ内のみ**：localStorage も使わない。リフレッシュごとに完全リセット
-- **ZIP 出力で永続化**：CSV / BibTeX / Zotero用 BibTeX / PDFリンク一覧 / 未検証CSV
-
-## Zoteroへの取り込み
-
-ZIP（または個別ダウンロード）から `.bib` を保存し、Zotero に **File → Import** または BibTeX ファイルを直接ドラッグ＆ドロップで取り込んでください。
-- Zotero の CORS ポリシーにより、外部ドメイン（GitHub Pages 等）からの `/connector/import` 直接送信は不可
-- `zotero_import_*.bib` は タグ（keywords）付きで出力されるので、取り込み後の整理が楽です
+- **ZIP 出力で永続化**：CSV / BibTeX / PDFリンク一覧 / 未検証CSV
 
 ## CORS の現実
 
