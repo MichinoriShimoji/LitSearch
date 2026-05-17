@@ -1053,7 +1053,12 @@ function authorMatches(recordAuthor, searchAuthor){
   const hay = normalizeForAuthorSearch(recordAuthor);
   if (hay.includes(needle)) return true;
   const parts = String(searchAuthor||'').split(/[;,，、\s　]+/).map(normalizeForAuthorSearch).filter(Boolean);
-  return parts.some(p => p.length >= (/[ぁ-んァ-ヶ一-龯]/.test(p) ? 1 : 2) && hay.includes(p));
+  const meaningful = parts.filter(p => p.length >= (/[ぁ-んァ-ヶ一-龯]/.test(p) ? 1 : 2));
+  if (!meaningful.length) return false;
+  // Full-name searches such as "原田 走一郎" should not collapse to surname-only
+  // matches; require every supplied name part to appear somewhere in the author.
+  if (meaningful.length >= 2) return meaningful.every(p => hay.includes(p));
+  return hay.includes(meaningful[0]);
 }
 function plausibleResult(record, query, author){
   const haystackTitle = (String(record.title||'')+' '+String(record.container||'')+' '+String(record.abstract_note||'')).toLowerCase();
