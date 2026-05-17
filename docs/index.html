@@ -754,12 +754,21 @@ async function enrichCiniiUrl(record){
 // CiNii by title and attach the crid URL so enrichCiniiUrl can run on it
 // and restore the original-language title.
 async function attachCiniiUrlByTitle(records){
-  const hasCJK = (s) => /[　-ヿ㐀-鿿＀-￯]/.test(String(s||''));
-  const targets = records.filter(r => r && hasCJK(r.title) && !r._cinii_url && !r.doi);
+  const normDoi = (s) => String(s||'').toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//,'').trim();
+  const itemDoi = (it) => {
+    for (const id of (it['dc:identifier']||[])){
+      const t = String(id['@type']||'').toUpperCase();
+      const v = id['@value']||'';
+      if (t.includes('DOI') && v) return normDoi(v);
+    }
+    return '';
+  };
+  const targets = records.filter(r => r && !r._cinii_url && (r.doi || r.title));
   if (!targets.length) return;
   await Promise.allSettled(targets.map(async (rec) => {
     try {
-      const q = String(rec.title||'').slice(0, 60).trim();
+      const recDoi = normDoi(rec.doi);
+      const q = (recDoi || String(rec.title||'').slice(0, 80)).trim();
       if (!q) return;
       const u = 'https://cir.nii.ac.jp/opensearch/all?q='+encodeURIComponent(q)+'&format=json&count=5';
       const r = await fetch(u);
@@ -771,10 +780,15 @@ async function attachCiniiUrlByTitle(records){
         const itemTitle = String(it.title||'');
         const itemUrl = (it.link && it.link['@id']) || it['@id'] || '';
         if (!/cir\.nii\.ac\.jp\/crid\//.test(itemUrl)) continue;
-        // Title must match (substring either direction, length ≥ 20 chars)
-        const a = String(rec.title||'').replace(/\s/g,'').toLowerCase();
-        const b = itemTitle.replace(/\s/g,'').toLowerCase();
-        if (!(a === b || (a.length>=20 && b.length>=20 && (a.includes(b.slice(0,20)) || b.includes(a.slice(0,20)))))) continue;
+        // DOI match is strongest and catches cases where CiNii OpenSearch
+        // returns a Japanese title for an English-titled record. Otherwise,
+        // fall back to conservative title matching.
+        const doiMatched = recDoi && itemDoi(it) === recDoi;
+        if (!doiMatched){
+          const a = String(rec.title||'').replace(/\s/g,'').toLowerCase();
+          const b = itemTitle.replace(/\s/g,'').toLowerCase();
+          if (!(a === b || (a.length>=20 && b.length>=20 && (a.includes(b.slice(0,20)) || b.includes(a.slice(0,20)))))) continue;
+        }
         // Year must match if both present
         const itemYr = String(it['prism:publicationDate']||'').match(/\d{4}/);
         if (recYear && itemYr && recYear[0] !== itemYr[0]) continue;
@@ -1912,10 +1926,9 @@ async function search(){
       setStatus('検索結果なし: 「'+sigLabel+'」');
       return;
     }
-    // Cross-reference: for OpenAlex/Crossref records that have a CJK title and
-    // no DOI (often the Japanese translation of an originally-English paper),
-    // look up the matching CiNii record by title so the next enrichment step
-    // can pull back the original-language title.
+    // Cross-reference OpenAlex/Crossref hits against CiNii. DOI matching fixes
+    // cases where an external source has the right article but a wrong journal
+    // name, while title matching catches records with no DOI.
     setProgress('CiNiiメタデータを補完中', 35);
     setStatus('CiNiiの補助メタデータを取得中...');
     await attachCiniiUrlByTitle(initial);
