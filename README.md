@@ -8,7 +8,9 @@
 
 ## できること
 
-- **松岡葵氏作成「地域別方言文献リスト」（11,000件超）** を基礎データベースとして組み込み
+- **松岡葵氏作成「地域別方言研究文献リスト」（11,000件超）** を基礎データベースとして組み込み
+  - Zenodo: https://zenodo.org/records/20248983
+  - DOI: https://doi.org/10.5281/zenodo.20248983
 - **CiNii Research / OpenAlex / Crossref** のリアルタイム検索を並列に追加
 - 重複は自動で1件に統合（タイトル＋年＋著者ベース、サブタイトル差・スクリプト差にも対応）
 - ヒット論文の参考文献を PDF（PDF.js）または Crossref メタから自動取得し、関連論文まで一気に拡張
@@ -21,7 +23,7 @@
 | ファイル | 内容 |
 |---|---|
 | `docs/index.html` | ツール本体（self-contained, ES module）|
-| `docs/data/hougen_search_results.csv` | 松岡葵氏作成 地域別方言文献リスト |
+| `docs/data/hougen_search_results.csv` | 松岡葵氏作成 地域別方言研究文献リスト（Zenodo DOI: `10.5281/zenodo.20248983`） |
 | `irabu_dialect_literature.csv` / `.bib` | 伊良部島方言の文献リスト |
 | `zotero_import_irabu_tagged.bib` | Zotero 取り込み用（tag付き） |
 | `irabu_derivative_candidate_verification.csv` | 未確認候補 |
@@ -32,7 +34,7 @@ PDFs は著作権上、リポジトリには含めません（`.gitignore`）。
 ## 著作・データ提供
 
 - ツール **LitScope** 著作：© 2026 **下地理則**（九州大学）
-- 基礎データ「地域別方言文献リスト」：松岡葵 氏 作成
+- 基礎データ「地域別方言研究文献リスト」：松岡葵 氏 作成（Zenodo: https://zenodo.org/records/20248983, DOI: `10.5281/zenodo.20248983`）
 
 ## ライセンス
 
